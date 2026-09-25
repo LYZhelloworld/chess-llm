@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>chess-llm</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --border: #e2e5ea;
+    --text: #1f2430;
+    --muted: #6b7280;
+    --accent: #2f6feb;
+    --accent-soft: #e8effd;
+    --danger: #c0392b;
+    --light-square: #f1ece1;
+    --dark-square: #b58863;
+    --select: #f7d774;
+    --target: rgba(47, 111, 235, 0.35);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .page { max-width: 1240px; margin: 0 auto; }
+  header { background: var(--card); border-bottom: 1px solid var(--border); }
+  .header-inner {
+    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 14px 22px;
+  }
+  h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  .layout {
+    display: grid; grid-template-columns: minmax(420px, 640px) minmax(320px, 1fr);
+    gap: 18px; padding: 18px 22px 40px; align-items: start;
+  }
+  @media (max-width: 1040px) { .layout { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-bottom: 14px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  .sq {
+    display: flex; align-items: center; justify-content: center;
+    font-size: clamp(22px, 4.4vw, 54px); cursor: pointer; user-select: none; line-height: 1;
+    aspect-ratio: 1 / 1; min-width: 0; min-height: 0; overflow: hidden;
+  }
+  .sq.light { background: var(--light-square); }
+  .sq.dark { background: var(--dark-square); }
+  .sq.selected { box-shadow: inset 0 0 0 4px var(--select); }
+  .sq.target::after {
+    content: ""; width: 34%; height: 34%; border-radius: 50%;
+    background: var(--target); position: absolute;
+  }
+  .sq { position: relative; }
+  .sq.last { box-shadow: inset 0 0 0 3px rgba(47,111,235,.55); }
+  .coords { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 4px 2px; }
+  .status { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
+  .pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 10px; font-weight: 600; }
+  .pill.warn { background: #fdeceb; color: var(--danger); }
+  .pill.gray { background: #eef0f3; color: var(--muted); }
+  table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.moves td { padding: 3px 6px; border-bottom: 1px solid #f0f1f4; }
+  table.moves td.num { color: var(--muted); width: 34px; }
+  .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .chat-head h2 { margin: 0 0 10px; }
+  .toggle { font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  #chat { max-height: 420px; overflow-y: auto; font-size: 13px; }
+  .msg { border-left: 3px solid var(--border); padding: 6px 10px; margin-bottom: 8px; word-break: break-word; }
+  .msg.user { border-left-color: #9aa3b2; color: var(--muted); }
+  .msg.assistant { border-left-color: var(--accent); background: #fbfcfe; }
+  .msg.tool { border-left-color: #c7cbd3; }
+  .msg.white { border-left-color: #aab4c2; }
+  .msg.black { border-left-color: #55606f; }
+  .msg .role { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .6px; }
+  .msg.live { border-left-color: var(--accent); background: #fbfcfe; }
+  /* The chain of thought is plain grey text, not a folded block. */
+  .cot { margin-top: 6px; color: var(--muted); background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+  .cot .cot-label { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; opacity: .75; margin-bottom: 2px; }
+  /* Markdown produced by renderMarkdown() */
+  .md p { margin: 4px 0; }
+  .md p:first-child { margin-top: 0; }
+  .md p:last-child { margin-bottom: 0; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 8px 0 4px; font-size: 14px; }
+  .md ul, .md ol { margin: 4px 0; padding-left: 20px; }
+  .md li { margin: 2px 0; }
+  .md blockquote { margin: 4px 0; padding-left: 8px; border-left: 2px solid var(--border); color: var(--muted); }
+  .md code { background: #eef0f3; border-radius: 4px; padding: 0 3px; font-size: 12px; }
+  .md pre { margin: 6px 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 8px; overflow: auto; font-size: 12px; }
+  .md pre code { background: none; padding: 0; }
+  .md a { color: var(--accent); }
+  .md hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+  pre.json { margin: 4px 0 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 200px; overflow: auto; font-size: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input[type=text], select, button {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: #fff; color: var(--text);
+  }
+  button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.secondary { background: #fff; color: var(--text); }
+  button.danger { background: var(--danger); border-color: var(--danger); }
+  input[type=text] { min-width: 90px; }
+  .hint { color: var(--muted); font-size: 12px; }
+  #banner { padding: 10px 16px; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: 12px; font-size: 13px; }
+  #banner.hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="page header-inner">
+    <h1>chess-llm</h1>
+    <span class="meta" id="game-meta">loading…</span>
+    <span class="meta" id="conn">● connecting</span>
+  </div>
+</header>
+
+<div class="page">
+  <div id="banner" class="hidden"></div>
+  <div class="layout">
+    <div class="card">
+      <h2>Board</h2>
+      <div id="board"></div>
+      <div class="coords"><span id="turn-label"></span></div>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="san" placeholder="SAN, e.g. Nf3" />
+        <button id="play">Play move</button>
+        <select id="promotion" title="promotion piece">
+          <option value="q">promote Q</option>
+          <option value="r">promote R</option>
+          <option value="b">promote B</option>
+          <option value="n">promote N</option>
+        </select>
+      </div>
+      <div class="hint" id="board-hint">Click a piece, then a highlighted target square.</div>
+    </div>
+
+    <div>
+      <div class="card">
+        <h2>Game</h2>
+        <div class="status" id="status"></div>
+        <div class="row" style="margin-top:10px">
+          <select id="new-white"><option value="human">white: human</option><option value="llm">white: llm</option></select>
+          <select id="new-black"><option value="human">black: human</option><option value="llm" selected>black: llm</option></select>
+          <button class="secondary" id="new-game">New game</button>
+          <button class="danger" id="resign">Resign (human side)</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <select id="saved-games"><option value="">load saved game…</option></select>
+          <button class="secondary" id="load-game">Load</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Moves</h2>
+        <table class="moves" id="moves"></table>
+      </div>
+      <div class="card">
+        <div class="chat-head">
+          <h2>Agent conversation</h2>
+          <label class="toggle">
+            <input type="checkbox" id="show-reasoning" /> show chain of thought
+          </label>
+        </div>
+        <div id="chat"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const UNICODE = {K:"\u2654",Q:"\u2655",R:"\u2656",B:"\u2657",N:"\u2658",P:"\u2659",
+                 k:"\u265A",q:"\u265B",r:"\u265C",b:"\u265D",n:"\u265E",p:"\u265F"};
+
+let state = null;
+let selected = null;
+let refreshTimer = null;
+let source = null;
+// Holds the in-progress streamed message for the side currently "writing".
+let liveDelta = null;
+// When the LLM crosses a tool boundary mid-turn (think -> tool -> think), the
+// next delta(s) must be preceded by a horizontal rule so the earlier thinking
+// stays visible and the phases stay separated. livePendingSep marks which
+// stream(s) still owe one.
+let livePendingSep = { content: false, reasoning: false };
+// Same separator merge_assistant_speech() uses to join one turn's assistant
+// messages; renderMarkdown() turns it into an <hr>.
+const STREAM_SEP = "\n\n---\n\n";
+
+const boardEl = document.getElementById("board");
+const chatEl = document.getElementById("chat");
+
+function fenToSquares(fen) {
+  const placement = fen.split(" ")[0];
+  const squares = [];
+  for (const row of placement.split("/")) {
+    for (const ch of row) {
+      if (/\d/.test(ch)) { for (let i = 0; i < parseInt(ch, 10); i++) squares.push(""); }
+      else squares.push(ch);
+    }
+  }
+  return squares; // index 0 = a8 ... 63 = h1
+}
+
+function squareName(index) {
+  const file = index % 8;
+  const rank = 8 - Math.floor(index / 8);
+  return "abcdefgh"[file] + rank;
+}
+
+function renderBoard() {
+  if (!state) return;
+  const squares = fenToSquares(state.fen);
+  const legal = new Set((state.legal_moves || []).map(m => m.uci));
+  const last = state.moves.length ? state.moves[state.moves.length - 1].uci : null;
+  const lastFrom = last ? last.slice(0, 2) : null;
+  const lastTo = last ? last.slice(2, 4) : null;
+
+  boardEl.innerHTML = "";
+  for (let i = 0; i < 64; i++) {
+    const cell = document.createElement("div");
+    const file = i % 8, rank = 8 - Math.floor(i / 8);
+    cell.className = "sq " + (((file + rank) % 2 === 0) ? "dark" : "light");
+    const name = squareName(i);
+    const piece = squares[i];
+    cell.textContent = piece ? (UNICODE[piece] || piece) : "";
+    if (piece && piece === piece.toUpperCase()) cell.style.color = "#fff";
+    cell.dataset.square = name;
+    if (selected === name) cell.classList.add("selected");
+    if (lastFrom && (name === lastFrom || name === lastTo)) cell.classList.add("last");
+    if (selected && legal.has(selected + name) ) cell.classList.add("target");
+    if (selected && legal.has(selected + name + "q")) cell.classList.add("target");
+    cell.addEventListener("click", () => onSquareClick(name));
+    boardEl.appendChild(cell);
+  }
+}
+
+function onSquareClick(name) {
+  if (!state || state.finished) return;
+  if (!canPlay(state.turn)) { flash(state.turn + " is not a human seat in this game."); return; }
+  const legal = state.legal_moves || [];
+  if (selected) {
+    const promo = document.getElementById("promotion").value;
+    const match = legal.find(m => m.uci === selected + name)
+      || legal.find(m => m.uci === selected + name + promo)
+      || legal.find(m => m.uci.startsWith(selected + name));
+    if (match) { selected = null; sendMove(match.san); return; }
+  }
+  const own = legal.find(m => m.uci.startsWith(name));
+  selected = own ? name : null;
+  renderBoard();
+}
+
+// Both sides can be human (hot-seat mode), so this returns a list.
+function humanSides() {
+  if (!state) return [];
+  const out = [];
+  if (state.white.kind === "human") out.push("white");
+  if (state.black.kind === "human") out.push("black");
+  return out;
+}
+
+function canPlay(side) {
+  return humanSides().indexOf(side) !== -1;
+}
+
+// True while an LLM seat is the side to move and the board is waiting on it.
+function waitingOnLlm() {
+  return !!state && !state.finished && !canPlay(state.turn);
+}
+
+// The seat a human controls; in hot-seat mode that is whoever is to move.
+function humanSide() {
+  const seats = humanSides();
+  if (!seats.length) return null;
+  if (state && canPlay(state.turn)) return state.turn;
+  return seats[0];
+}
+
+async function sendMove(move) {
+  const res = await fetch("/api/move", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({move})
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    flash((data.error && data.error.message) || "Move rejected.");
+  }
+  await refresh();
+}
+
+function renderStatus() {
+  const el = document.getElementById("status");
+  const pills = [];
+  pills.push(`<span class="pill">turn: ${state.turn}</span>`);
+  pills.push(`<span class="pill ${state.in_check ? "warn" : "gray"}">${state.check_status}</span>`);
+  pills.push(`<span class="pill gray">halfmove clock: ${state.halfmove_clock}</span>`);
+  pills.push(`<span class="pill gray">move ${state.fullmove_number}</span>`);
+  pills.push(`<span class="pill gray">${state.white_name} vs ${state.black_name}</span>`);
+  if (waitingOnLlm()) {
+    pills.push(`<span class="pill">${state.turn} (LLM) is thinking…</span>`);
+  }
+  if (state.finished && state.result) {
+    pills.push(`<span class="pill warn">${state.result.pgn_result} · ${state.result.reason}</span>`);
+  }
+  el.innerHTML = pills.join(" ");
+
+  document.getElementById("game-meta").textContent =
+    `${state.game_id} · ${state.mode}` + (state.finished ? " · finished" : "");
+  document.getElementById("turn-label").textContent = state.finished
+    ? "game over"
+    : (waitingOnLlm() ? `${state.turn} is thinking…` : `${state.turn} to move`);
+
+  // Keep the "new game" dropdowns in sync with the game that is loaded.
+  document.getElementById("new-white").value = state.white.kind;
+  document.getElementById("new-black").value = state.black.kind;
+
+  const seats = humanSides();
+  const resignBtn = document.getElementById("resign");
+  if (!seats.length) {
+    resignBtn.disabled = true;
+    resignBtn.textContent = "Resign (no human seat)";
+  } else {
+    resignBtn.disabled = state.finished;
+    resignBtn.textContent = seats.length === 2
+      ? `Resign (${state.turn}, to move)`
+      : `Resign (${seats[0]})`;
+  }
+}
+
+function renderMoves() {
+  const table = document.getElementById("moves");
+  const rows = [];
+  for (let i = 0; i < state.moves.length; i += 2) {
+    const w = state.moves[i], b = state.moves[i + 1];
+    rows.push(`<tr><td class="num">${(i / 2) + 1}.</td><td>${w ? w.san : ""}</td><td>${b ? b.san : ""}</td></tr>`);
+  }
+  table.innerHTML = rows.join("") || '<tr><td class="num">-</td><td>no moves yet</td><td></td></tr>';
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+// Only these link schemes survive; anything else is rendered as plain text so
+// a model cannot smuggle javascript: URLs into the page.
+function safeLink(label, url) {
+  const raw = String(url).replace(/&amp;/g, "&");
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw) && !/^(https?|mailto):/i.test(raw)) return label;
+  return `<a href="${url}" target="_blank" rel="noreferrer noopener">${label}</a>`;
+}
+
+// Minimal Markdown renderer - enough for what an LLM writes, and dependency
+// free so the page keeps working offline. HTML is escaped before anything is
+// emitted, so model output can never inject markup.
+function renderMarkdown(text) {
+  const source = String(text || "");
+  if (!source.trim()) return "";
+
+  const codes = [];
+  // Inline code is stashed first so bold/italic never rewrites its inside.
+  const stashCode = (chunk) => chunk.replace(/`([^`\n]+)`/g, (_m, code) => {
+    codes.push(`<code>${code}</code>`);
+    return "\u0001" + (codes.length - 1) + "\u0001";
+  });
+
+  const inline = (chunk) => {
+    let t = chunk
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+      .replace(/(^|[^_\w])_([^_\n]+)_/g, "$1<em>$2</em>")
+      .replace(/~~([^~\n]+)~~/g, "<del>$1</del>")
+      .replace(/\[([^\]]*)\]\(([^)\s]+)\)/g, (_m, label, url) => safeLink(label || url, url));
+    t = t.replace(/\u0001(\d+)\u0001/g, (_m, i) => codes[Number(i)] || "");
+    return t.replace(/\n/g, "<br>");
+  };
+
+  const blocks = [];
+  let para = [], quote = [], list = null, fence = null;
+  const flushPara = () => { if (para.length) { blocks.push(`<p>${inline(para.join("\n"))}</p>`); para = []; } };
+  const flushQuote = () => { if (quote.length) { blocks.push(`<blockquote>${inline(quote.join("\n"))}</blockquote>`); quote = []; } };
+  const flushList = () => {
+    if (!list) return;
+    blocks.push(`<${list.tag}>${list.items.map(i => `<li>${inline(i)}</li>`).join("")}</${list.tag}>`);
+    list = null;
+  };
+  const flushAll = () => { flushPara(); flushQuote(); flushList(); };
+
+  for (const raw of source.split("\n")) {
+    // Fenced code: collected verbatim, never parsed as Markdown.
+    if (fence === null && /^\s*```[ \t]*[A-Za-z0-9_+-]*\s*$/.test(raw)) { flushAll(); fence = []; continue; }
+    if (fence !== null && /^\s*```\s*$/.test(raw)) {
+      blocks.push(`<pre><code>${escapeHtml(fence.join("\n"))}</code></pre>`);
+      fence = null;
+      continue;
+    }
+    if (fence !== null) { fence.push(raw); continue; }
+
+    const line = stashCode(escapeHtml(raw));
+    if (!line.trim()) { flushAll(); continue; }
+    const heading = line.match(/^\s*(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flushAll();
+      const level = Math.min(heading[1].length + 2, 6);
+      blocks.push(`<h${level}>${inline(heading[2])}</h${level}>`);
+      continue;
+    }
+    if (/^\s*([-*_])\s*(\1\s*){2,}$/.test(line)) { flushAll(); blocks.push("<hr>"); continue; }
+    // ">" has already been escaped into "&gt;" by escapeHtml().
+    const quoted = line.match(/^\s*&gt;\s?(.*)$/);
+    if (quoted) { flushPara(); flushList(); quote.push(quoted[1]); continue; }
+    const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
+    if (bullet) { flushPara(); flushQuote(); if (!list || list.tag !== "ul") { flushList(); list = {tag: "ul", items: []}; } list.items.push(bullet[1]); continue; }
+    const numbered = line.match(/^\s*\d+[.)]\s+(.*)$/);
+    if (numbered) { flushPara(); flushQuote(); if (!list || list.tag !== "ol") { flushList(); list = {tag: "ol", items: []}; } list.items.push(numbered[1]); continue; }
+    flushQuote(); flushList(); para.push(line);
+  }
+  flushAll();
+  // An unclosed fence still gets rendered rather than dropped.
+  if (fence !== null) blocks.push(`<pre><code>${escapeHtml(fence.join("\n"))}</code></pre>`);
+  return blocks.join("");
+}
+
+// One merged stream: what both agents said, in the order they said it.
+// Prompts, tool calls and tool results are deliberately left out.
+function renderChat() {
+  const entries = state.conversation || [];
+  const showReasoning = document.getElementById("show-reasoning").checked;
+  const parts = [];
+  for (const entry of entries) {
+    const content = (entry.content || "").trim();
+    const reasoning = (entry.reasoning || "").trim();
+    // Nothing to show unless the box has spoken text, or the chain of
+    // thought is switched on.
+    if (!content && !(showReasoning && reasoning)) continue;
+    const body = content ? `<div class="md">${renderMarkdown(content)}</div>` : "";
+    const cot = (showReasoning && reasoning)
+      ? `<div class="cot"><div class="cot-label">chain of thought</div><div class="md">${renderMarkdown(reasoning)}</div></div>`
+      : "";
+    parts.push(
+      `<div class="msg ${entry.side}"><div class="role">${entry.side} · move ${Math.ceil(entry.ply / 2)}</div>${body}${cot}</div>`
+    );
+  }
+  // While the side to move is replying, show the live streamed text as a
+  // temporary bubble at the bottom. It is replaced by the authoritative
+  // conversation as soon as the game state is refreshed.
+  if (liveDelta && (liveDelta.content || (showReasoning && liveDelta.reasoning))) {
+    const body = liveDelta.content
+      ? `<div class="md">${renderMarkdown(liveDelta.content)}</div>`
+      : "";
+    const cot = (showReasoning && liveDelta.reasoning)
+      ? `<div class="cot"><div class="cot-label">chain of thought</div><div class="md">${renderMarkdown(liveDelta.reasoning)}</div></div>`
+      : "";
+    parts.push(
+      `<div class="msg ${liveDelta.side} live"><div class="role">${liveDelta.side} · writing…</div>${body}${cot}</div>`
+    );
+  }
+  if (!parts.length) { chatEl.innerHTML = '<div class="hint">Nothing said yet.</div>'; return; }
+  chatEl.innerHTML = parts.join("");
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+// Append a streamed delta to the live bubble (no full refresh - the partial
+// text is the only thing that changed).
+function accumulateDelta(payload) {
+  if (!liveDelta || liveDelta.side !== payload.side) {
+    liveDelta = { side: payload.side, content: "", reasoning: "" };
+    livePendingSep = { content: false, reasoning: false };
+  }
+  // If we just crossed a tool boundary, separate this phase from the previous
+  // one with a horizontal rule in whichever stream is being continued - the
+  // same way the final merged conversation entry does it.
+  if (payload.content) {
+    if (livePendingSep.content) { liveDelta.content += STREAM_SEP; livePendingSep.content = false; }
+    liveDelta.content += payload.content;
+  }
+  if (payload.reasoning) {
+    if (livePendingSep.reasoning) { liveDelta.reasoning += STREAM_SEP; livePendingSep.reasoning = false; }
+    liveDelta.reasoning += payload.reasoning;
+  }
+  renderChat();
+}
+
+function renderBanner() {
+  const banner = document.getElementById("banner");
+  if (state.finished && state.result) {
+    banner.classList.remove("hidden");
+    banner.innerHTML = `<strong>Game over:</strong> ${escapeHtml(state.result.reason)} — ${escapeHtml(state.result.detail || "")} (${state.result.pgn_result})`;
+  } else {
+    banner.classList.add("hidden");
+  }
+}
+
+function render() {
+  if (!state) return;
+  renderStatus();
+  renderBoard();
+  renderMoves();
+  renderChat();
+  renderBanner();
+}
+
+async function refresh() {
+  const res = await fetch("/api/state");
+  state = await res.json();
+  liveDelta = null;  // rebuild chat from the authoritative conversation
+  render();
+}
+
+function scheduleRefresh() {
+  if (refreshTimer) clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(refresh, 120);
+}
+
+function flash(message) {
+  const banner = document.getElementById("banner");
+  banner.classList.remove("hidden");
+  banner.textContent = message;
+  setTimeout(() => { if (!state.finished) banner.classList.add("hidden"); renderBanner(); }, 2500);
+}
+
+document.getElementById("show-reasoning").addEventListener("change", renderChat);
+
+document.getElementById("play").addEventListener("click", () => {
+  const value = document.getElementById("san").value.trim();
+  if (!value) return;
+  document.getElementById("san").value = "";
+  sendMove(value);
+});
+
+document.getElementById("new-game").addEventListener("click", async () => {
+  const body = {
+    white: document.getElementById("new-white").value,
+    black: document.getElementById("new-black").value
+  };
+  await fetch("/api/new", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  selected = null;
+  await refresh();
+});
+
+document.getElementById("resign").addEventListener("click", async () => {
+  const side = humanSide();
+  if (!side) { flash("There is no human side in this game."); return; }
+  await fetch("/api/resign", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({side})});
+  await refresh();
+});
+
+document.getElementById("load-game").addEventListener("click", async () => {
+  const gameId = document.getElementById("saved-games").value;
+  if (!gameId) return;
+  const res = await fetch("/api/load", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId})});
+  if (!res.ok) { flash("Could not load that game."); return; }
+  selected = null;
+  await refresh();
+});
+
+async function loadSavedGames() {
+  const res = await fetch("/api/games");
+  const data = await res.json();
+  const select = document.getElementById("saved-games");
+  select.innerHTML = '<option value="">load saved game…</option>' +
+    (data.games || []).map(g => `<option value="${g}">${g}</option>`).join("");
+}
+
+function connect() {
+  if (source) source.close();
+  source = new EventSource("/api/events");
+  source.addEventListener("open", () => {
+    document.getElementById("conn").textContent = "● live";
+    document.getElementById("conn").style.color = "#2e9e5b";
+  });
+  source.addEventListener("message", (event) => {
+    const payload = JSON.parse(event.data);
+    if (payload.type === "connected") return;
+
+    // Token-by-token delta: update the live bubble in place, without a full
+    // refresh, so the partial text we already drew is never wiped.
+    if (payload.type === "llm_delta") { accumulateDelta(payload); return; }
+
+    if (payload.type === "game_started" || payload.type === "game_loaded") { loadSavedGames(); }
+
+    // A new turn begins: drop the previous live bubble so the next model reply
+    // starts clean. We deliberately do NOT refresh here - the previous turn
+    // always ended with an authoritative refresh, and a refresh now could land
+    // after the first streaming deltas and wipe them before round two streams,
+    // which would make round two start a fresh bubble and silently drop round
+    // one's thinking.
+    if (payload.type === "turn_start") {
+      liveDelta = null;
+      livePendingSep = { content: false, reasoning: false };
+      return;
+    }
+
+    // Tool calls/results happen in the MIDDLE of a turn (think -> tool -> think).
+    // They never change the board, so we must NOT refresh and wipe the live
+    // bubble. Instead flag that the next delta needs a horizontal rule, so the
+    // earlier thinking stays visible and the phases remain separated the same
+    // way the final merged conversation entry joins them.
+    if (payload.type === "tool_call" || payload.type === "tool_result") {
+      if (liveDelta) {
+        livePendingSep.content = !!liveDelta.content;
+        livePendingSep.reasoning = !!liveDelta.reasoning;
+      }
+      return;
+    }
+
+    // user_prompt / nudge carry no visible text and can arrive while the live
+    // bubble is being built; ignore them so they never trigger a refresh that
+    // would wipe in-progress streaming.
+    if (payload.type === "user_prompt" || payload.type === "nudge") return;
+
+    // llm_message marks the end of one model reply inside a turn. While we are
+    // actively streaming (liveDelta set) the bubble already shows the text, so
+    // skip the refresh; for non-streaming clients (no deltas arrived) refresh to
+    // reveal the spoken text.
+    if (payload.type === "llm_message") {
+      if (!liveDelta) scheduleRefresh();
+      return;
+    }
+
+    // Everything else (move, state, game_over, talk, resign, llm_error,
+    // fallback_move, ...) means the turn is done or the board changed: rebuild
+    // from the authoritative state, which replaces the live bubble with the
+    // final merged conversation.
+    scheduleRefresh();
+  });
+  source.addEventListener("error", () => {
+    document.getElementById("conn").textContent = "● offline";
+    document.getElementById("conn").style.color = "#c0392b";
+  });
+}
+
+(async function init() {
+  await refresh();
+  await loadSavedGames();
+  connect();
+  setInterval(loadSavedGames, 30000);
+  // Safety net: while an LLM is to move, poll as well as listen, so the board
+  // still catches up if the event stream drops. Also revive a dead stream.
+  // While a stream is in flight the live bubble is the source of truth - a poll
+  // refresh would wipe it mid-thought, so skip polling until the stream ends.
+  setInterval(() => {
+    if (waitingOnLlm() && !liveDelta) { refresh().catch(() => {}); }
+    if (source && source.readyState === 2) connect();
+  }, 2000);
+})();
+</script>
+</body>
+</html>

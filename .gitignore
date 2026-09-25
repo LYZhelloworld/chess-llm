@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# chess-llm local configuration (holds API keys - never commit)
+config.yaml
+
+# chess-llm game records (games/ and logs/ are created on demand)
+games/
+logs/

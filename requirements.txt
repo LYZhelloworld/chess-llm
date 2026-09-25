@@ -1,0 +1,7 @@
+chess>=1.10
+openai>=1.40
+fastapi>=0.110
+uvicorn>=0.30
+pydantic>=2.6
+PyYAML>=6.0
+pytest>=8.0

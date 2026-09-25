@@ -1,0 +1,77 @@
+# chess-llm configuration template.
+#
+# Copy this file to `config.yaml` before starting the application:
+#     cp config.example.yaml config.yaml
+# The application refuses to start while `config.yaml` is missing.
+# `config.yaml` is git-ignored because it holds API keys.
+#
+# Every value below is optional; missing keys fall back to the built-in defaults.
+
+default_profile: default
+
+llm_profiles:
+  default:
+    base_url: "https://api.openai.com/v1"
+    # Preferred: the key itself. When set it wins over `api_key_env`.
+    api_key: "sk-..."
+    # Fallback: name of an environment variable holding the key, used only
+    # when `api_key` above is empty.
+    api_key_env: "OPENAI_API_KEY"
+    model: "gpt-4o-mini"
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 2048
+    timeout: 120
+    max_retries: 2
+    retry_backoff: 2.0
+    # Chain of thought of reasoning models: keep it in the history sent back to
+    # the model. auto = try it and stop if the backend refuses; on = always;
+    # off = never (it is still stored in the game JSON and shown in the UI).
+    reasoning: auto
+    # Stream the reply token by token to the UI for a live "writing" effect.
+    # auto = stream when the backend supports it, fall back to a full reply on
+    # error; on = always stream; off = never stream.
+    stream: auto
+
+  # Example profiles: pick one with --white-profile / --black-profile
+  deepseek:
+    base_url: "https://api.deepseek.com/v1"
+    api_key: ""
+    api_key_env: "DEEPSEEK_API_KEY"
+    model: "deepseek-chat"
+    temperature: 0.7
+
+  local:
+    base_url: "http://127.0.0.1:11434/v1"
+    # Local endpoints usually accept any non-empty key.
+    api_key: "sk-no-key"
+    api_key_env: "LOCAL_API_KEY"
+    model: "qwen2.5:14b"
+    temperature: 0.6
+
+draw:
+  # Number of repetitions of the same position that ends the game as a draw.
+  repetition_count: 3
+  # Full moves without a capture or a pawn move that end the game as a draw.
+  no_progress_moves: 50
+  # Hard cap on full moves (protects against two LLMs circling forever).
+  max_game_moves: 200
+  insufficient_material: true
+  stalemate: true
+
+loop:
+  # LLM exchanges allowed per turn before a random legal move is played.
+  max_tool_turns: 20
+  # How many conversation turns are sent to the model (history is fully stored).
+  context_turns: 20
+  fallback_random_move: true
+
+storage:
+  games_dir: "games"
+  logs_dir: "logs"
+  autosave: true
+  log_level: "INFO"
+  log_to_console: true
+
+# Optional: fixed seed makes random fallback moves reproducible.
+seed: null

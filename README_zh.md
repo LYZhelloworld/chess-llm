@@ -26,31 +26,27 @@ pip install -r requirements.txt
 cp config.example.yaml config.yaml                # 然后把你的 API key 填进去
 ```
 
-需要 Python 3.10+。只要有一方是 LLM，缺少 `config.yaml` 时就拒绝启动 ——
-这个文件被 git 忽略，因为它保存着你的 API 密钥。`--mode human-vs-human`
-是唯一的例外：它完全不需要配置文件，在你还在搭建（或下载）模型的时候很好用。
+需要 Python 3.10+。即使没有 `config.yaml` 服务也能启动 —— 你可以直接开起来、不花
+token 玩 human vs human。只有在开一个带 LLM 一方的对局时才需要 `config.yaml`；它
+被 git 忽略，因为保存着你的 API 密钥。
 
 ## 运行
 
 ```bash
-# 人类（白）对 LLM（黑）- 打开 http://127.0.0.1:8000
 python -m src.main
-
-# 浏览器里看 LLM 互弈
-python -m src.main --mode llm-vs-llm
-
-# 不开浏览器的 LLM 互弈（每步打印棋盘，结束时打印结果）
-python -m src.main --mode llm-vs-llm --headless
-
-# 同屏双人（热座）：不需要模型，也不需要 config.yaml
-python -m src.main --mode human-vs-human
-
-# 续上一局
-python -m src.main --load game_20260925_195646
+# 打开 http://127.0.0.1:8000
 ```
 
-`--mode` 只是两边的快捷写法；显式传 `--white` / `--black` 时以后者为准。
-在 `human-vs-human` 下两名玩家共用一块棋盘：轮到谁走谁就能走，投降按钮作用于
+然后在浏览器里：
+
+- **New game** —— 选择白方、黑方各由谁执子。每一方要么是 `human`，要么是
+  `config.yaml` 里的一个 LLM profile；LLM 一方需要该 profile 配了 API key。
+- **Load saved game** —— 选择一局之前的棋；可选择性地覆盖任意一方（例如换成另一个
+  profile，或自己接管某一方）。
+- 轮到人类时点击棋子（或输入 SAN）走子，并实时看双方合并后的对话（思维链由
+  「show chain of thought」开关控制）逐字流出。
+
+`human-vs-human` 是热座模式：两名玩家共用棋盘，轮到谁走谁就能走，投降按钮作用于
 当前行棋方。
 
 Web 界面可以点击棋子（或输入 SAN）、在一条合并的时间线里看双方 Agent 说了什么
@@ -59,26 +55,17 @@ Web 界面可以点击棋子（或输入 SAN）、在一条合并的时间线里
 
 ## 命令行参数
 
+命令行只携带服务端需要的内容。对阵本身在浏览器里选。
+
 | 参数 | 含义 |
 | --- | --- |
-| `--mode` | `human-vs-llm`、`llm-vs-human`、`llm-vs-llm`、`human-vs-human` |
-| `--white` / `--black` | `human` 或 `llm`（默认 human / llm；优先级高于 `--mode`） |
-| `--white-profile` / `--black-profile` | `config.yaml` 里命名好的 profile |
-| `--model`、`--white-model`、`--black-model` | 覆盖模型 |
-| `--base-url` | OpenAI 兼容端点（DeepSeek、Moonshot、vLLM、Ollama 等） |
-| `--api-key` | 覆盖两边的 API key |
-| `--api-key-env` | 存放 API key 的环境变量名 |
-| `--config` | 指向另一个 `config.yaml` |
-| `--load` | 续 `game_yyyyMMdd_HHmmss` 这一局 |
-| `--seed` | 随机兜底走子的随机种子 |
-| `--headless` | 不启 Web 界面（两边都必须是 LLM） |
+| `--config` | 指向 `config.yaml`（由 `config.example.yaml` 复制而来） |
 | `--host` / `--port` | Web 服务监听地址（默认 127.0.0.1:8000） |
 | `--log-level` | DEBUG / INFO / WARNING / ERROR |
 
 ## 配置
 
-配置模型有三种方式，按此顺序生效（后者覆盖前者）：
-`config.yaml` → 环境变量 → 命令行参数。
+模型在 `config.yaml` 里配置，环境变量可作为默认 profile 的可选覆盖。
 
 ### 1. `config.yaml`（推荐）
 
@@ -89,8 +76,6 @@ cp config.example.yaml config.yaml
 ```
 
 ```yaml
-default_profile: default          # 未指定 --*-profile 时使用
-
 llm_profiles:
   default:   {base_url: "https://api.openai.com/v1",  api_key: "sk-...", model: gpt-4o-mini}
   deepseek:  {base_url: "https://api.deepseek.com/v1", api_key: "sk-...", model: deepseek-chat}
@@ -108,11 +93,7 @@ storage: {games_dir: games, logs_dir: logs, log_level: INFO}
 始终会存进对局 JSON，并在界面上由一个开关控制是否显示；这个模式决定它是否也随历史
 回传给模型：`auto`（默认）先试，后端拒绝就不再回传；`on` 始终回传；`off` 从不回传。
 
-两边用不同 profile：
-
-```bash
-python -m src.main --white-profile deepseek --black-profile local
-```
+在界面开新局时，从下拉框为每一方选一个 profile —— 不再有等价的命令行参数。
 
 ### 2. 环境变量（可选）
 
@@ -123,14 +104,6 @@ python -m src.main --white-profile deepseek --black-profile local
 export OPENAI_API_KEY=sk-...     # 由 "default" profile 通过 api_key_env 读取
 export OPENAI_BASE_URL=...       # 可选，覆盖 base_url
 export OPENAI_MODEL=gpt-4o       # 可选，覆盖 model
-```
-
-### 3. 命令行参数（临时实验最快）
-
-```bash
-python -m src.main --model gpt-4o                       # 两边同一个模型
-python -m src.main --api-key sk-...                     # 两边同一个 key
-python -m src.main --base-url http://127.0.0.1:11434/v1 --model qwen2.5:14b --api-key sk-no-key
 ```
 
 任何 OpenAI 兼容端点都能用（OpenAI、DeepSeek、Moonshot、vLLM、Ollama、

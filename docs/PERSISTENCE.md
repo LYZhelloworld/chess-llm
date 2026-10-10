@@ -1,7 +1,7 @@
 # Persistence: games/ and logs/
 
 Game id = `game_yyyyMMdd_HHmmss`. It is the base name of every artifact of a
-game and the value passed to `--load`.
+game and the id you pick from the web UI's "Load saved game" dropdown.
 
 ```
 games/game_20260925_195646.pgn     rewritten after every move
@@ -83,9 +83,9 @@ uvicorn access lines are filtered out.
 
 ## Resuming a game
 
-`python -m src.main --load game_20260925_195646` reads the JSON, rebuilds the
-board by replaying the stored moves, restores both chat histories and keeps
-writing to the **same** log file (`log_20260925_195646.log`). If the game id
-does not contain a parseable timestamp, the current time is used instead. The
-game is always saved before the process exits (`atexit` + FastAPI shutdown
-hook), so Ctrl-C never loses a move.
+From the web UI, choose a game in "Load saved game" and click Load (optionally
+overriding either seat). The server reads the JSON, rebuilds the board by
+replaying the stored moves, restores both chat histories and keeps writing to the
+**same** log file (`log_20260925_195646.log`). If the game id does not contain a
+parseable timestamp, the current time is used instead. The game is always saved
+before the process exits (FastAPI shutdown hook), so Ctrl-C never loses a move.

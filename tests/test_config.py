@@ -66,7 +66,6 @@ def test_load_config_reads_api_key_and_sections(tmp_path):
     path.write_text(
         textwrap.dedent(
             """
-            default_profile: deepseek
             llm_profiles:
               deepseek:
                 base_url: "https://api.deepseek.com/v1"
@@ -80,12 +79,33 @@ def test_load_config_reads_api_key_and_sections(tmp_path):
     )
 
     cfg = load_config(path)
-    profile = cfg.profile()
+    profile = cfg.profile("deepseek")
 
     assert profile.name == "deepseek"
     assert profile.resolved_api_key == "sk-deepseek"
     assert profile.model == "deepseek-chat"
     assert cfg.draw.max_game_moves == 120
+
+
+def test_profile_lookup_is_explicit_and_fails_on_unknown(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        textwrap.dedent(
+            """
+            llm_profiles:
+              openai:
+                api_key: "sk-openai"
+            """
+        ),
+        encoding="utf-8",
+    )
+    cfg = load_config(path)
+
+    assert cfg.has_profile("openai") is True
+    assert cfg.is_profile_configured("openai") is True
+    # An explicit, unknown name must fail loudly instead of inventing a profile.
+    with pytest.raises(ConfigError):
+        cfg.profile("nope")
 
 
 def test_reasoning_mode_is_normalised():

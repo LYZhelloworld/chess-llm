@@ -2,12 +2,13 @@
 #
 # Copy this file to `config.yaml` before starting the application:
 #     cp config.example.yaml config.yaml
-# The application refuses to start while `config.yaml` is missing.
 # `config.yaml` is git-ignored because it holds API keys.
 #
+# config.yaml is NOT required to start the server: you can launch it and play
+# human vs human straight away. A profile below IS required only when you start a
+# game with an LLM side - pick it from the web UI's "New game" panel.
+#
 # Every value below is optional; missing keys fall back to the built-in defaults.
-
-default_profile: default
 
 llm_profiles:
   default:
@@ -33,7 +34,7 @@ llm_profiles:
     # error; on = always stream; off = never stream.
     stream: auto
 
-  # Example profiles: pick one with --white-profile / --black-profile
+  # Example profiles: choose one of these in the web UI when starting a game.
   deepseek:
     base_url: "https://api.deepseek.com/v1"
     api_key: ""

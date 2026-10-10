@@ -27,61 +27,46 @@ pip install -r requirements.txt
 cp config.example.yaml config.yaml                # then put your API key in it
 ```
 
-Requires Python 3.10+. Any game with an LLM side refuses to start until
-`config.yaml` exists — it is git-ignored because it holds your API keys.
-`--mode human-vs-human` is the exception: it runs with no config file at all,
-which is handy while you are still setting up (or downloading) a model.
+Requires Python 3.10+. The server starts even without `config.yaml` — you can
+play human vs human straight away. A `config.yaml` is only needed once you start
+a game with an LLM side; it is git-ignored because it holds your API keys.
 
 ## Run
 
 ```bash
-# human (white) vs LLM (black) - open http://127.0.0.1:8000
 python -m src.main
-
-# LLM vs LLM in the browser
-python -m src.main --mode llm-vs-llm
-
-# LLM vs LLM without a browser (prints each board, then the result)
-python -m src.main --mode llm-vs-llm --headless
-
-# human vs human on one screen (hot-seat): needs no model and no config.yaml
-python -m src.main --mode human-vs-human
-
-# resume a saved game
-python -m src.main --load game_20260925_195646
+# opens http://127.0.0.1:8000
 ```
 
-`--mode` is just a shortcut for the two sides; `--white` / `--black` still win
-if you pass them. In `human-vs-human` both players use the same board: whoever
-is to move may play, and the resign button acts on the side to move.
+Then, in the browser:
 
-The web UI lets you click pieces (or type SAN), read what both agents said in
-one merged stream (prompts, tool calls and tool results are left out; chain of
-thought is behind a "show chain of thought" toggle), start a new game, and load
-a saved one.
+- **New game** — pick who plays white and black. Each side is either `human` or
+  an LLM profile from `config.yaml`; an LLM side needs a profile that has an API
+  key configured.
+- **Load saved game** — pick a previous game; optionally override either seat
+  (for example to swap in a different profile, or to take over a seat yourself).
+- Click pieces (or type SAN) to move when it is a human's turn, and watch both
+  agents' merged conversation (chain-of-thought behind a "show chain of thought"
+  toggle) stream in live.
+
+`human-vs-human` is hot-seat: both players share the board, and whoever is to
+move may play; the resign button acts on the side to move.
 
 ## Command line
 
+The command line only carries what the server needs. The matchup itself is
+chosen in the browser.
+
 | Flag | Meaning |
 | --- | --- |
-| `--mode` | `human-vs-llm`, `llm-vs-human`, `llm-vs-llm`, `human-vs-human` |
-| `--white` / `--black` | `human` or `llm` (default: human / llm; overrides `--mode`) |
-| `--white-profile` / `--black-profile` | named profile from `config.yaml` |
-| `--model`, `--white-model`, `--black-model` | model override |
-| `--base-url` | OpenAI-compatible endpoint (DeepSeek, Moonshot, vLLM, Ollama, ...) |
-| `--api-key` | API key override for both LLM sides |
-| `--api-key-env` | env var that holds the API key |
-| `--config` | path to a different `config.yaml` |
-| `--load` | resume `game_yyyyMMdd_HHmmss` |
-| `--seed` | seed for the random-fallback move |
-| `--headless` | no web UI (both sides must be LLMs) |
+| `--config` | path to `config.yaml` (copied from `config.example.yaml`) |
 | `--host` / `--port` | web server binding (default 127.0.0.1:8000) |
 | `--log-level` | DEBUG / INFO / WARNING / ERROR |
 
 ## Configuration
 
-There are three ways to configure the model, applied in this order (later wins):
-`config.yaml` → environment variables → CLI flags.
+The model is configured in `config.yaml`, with environment variables as an
+optional override for the default profile.
 
 ### 1. `config.yaml` (recommended)
 
@@ -92,8 +77,6 @@ cp config.example.yaml config.yaml
 ```
 
 ```yaml
-default_profile: default          # used when no --*-profile is given
-
 llm_profiles:
   default:   {base_url: "https://api.openai.com/v1",  api_key: "sk-...", model: gpt-4o-mini}
   deepseek:  {base_url: "https://api.deepseek.com/v1", api_key: "sk-...", model: deepseek-chat}
@@ -114,11 +97,8 @@ and shown in the UI behind a toggle; the mode says whether it is also sent back
 with the history: `auto` (default) tries it and stops if the backend refuses,
 `on` always sends it, `off` never sends it.
 
-Use a profile per side:
-
-```bash
-python -m src.main --white-profile deepseek --black-profile local
-```
+When you start a game in the UI, choose a profile per side from the dropdowns —
+there is no command-line equivalent anymore.
 
 ### 2. Environment variables (optional)
 
@@ -129,14 +109,6 @@ Used only by profiles whose `api_key` is empty. `OPENAI_BASE_URL` and
 export OPENAI_API_KEY=sk-...     # read by the "default" profile via api_key_env
 export OPENAI_BASE_URL=...       # optional override of base_url
 export OPENAI_MODEL=gpt-4o       # optional override of model
-```
-
-### 3. CLI flags (quickest for one-off experiments)
-
-```bash
-python -m src.main --model gpt-4o                       # both sides
-python -m src.main --api-key sk-...                     # key for both sides
-python -m src.main --base-url http://127.0.0.1:11434/v1 --model qwen2.5:14b --api-key sk-no-key
 ```
 
 Any OpenAI-compatible endpoint works (OpenAI, DeepSeek, Moonshot, vLLM, Ollama,

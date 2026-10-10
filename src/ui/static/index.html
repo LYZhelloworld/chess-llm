@@ -20,25 +20,46 @@
     --target: rgba(47, 111, 235, 0.35);
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0;
     font-family: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
+    display: flex; flex-direction: column;
+    height: 100vh; overflow: hidden;
   }
-  .page { max-width: 1240px; margin: 0 auto; }
-  header { background: var(--card); border-bottom: 1px solid var(--border); }
+  /* The page fills the viewport; only the Moves list and the chat scroll
+     internally, so there is no page-level scrollbar. */
+  .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-width: 1240px; width: 100%; margin: 0 auto; overflow: hidden; }
+  header { flex: 0 0 auto; background: var(--card); border-bottom: 1px solid var(--border); }
   .header-inner {
     display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
     padding: 14px 22px;
   }
   h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
   .meta { color: var(--muted); font-size: 13px; }
-  .layout {
+  /* Layout: a vertical stack (main) of a top row and the conversation below.
+     The height lives on the first row; both columns stretch to it so the board
+     and the right-hand game+moves column are flush. */
+  .app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 40px; overflow: hidden; }
+  .top-row {
     display: grid; grid-template-columns: minmax(420px, 640px) minmax(320px, 1fr);
-    gap: 18px; padding: 18px 22px 40px; align-items: start;
+    gap: 18px; align-items: stretch;
+    flex: 0 1 auto; min-height: 0;
+    height: min(640px, 72vh);
   }
-  @media (max-width: 1040px) { .layout { grid-template-columns: 1fr; } }
+  .col { min-width: 0; }
+  .col.side { display: flex; flex-direction: column; gap: 14px; }
+  .board-card { height: 100%; display: flex; flex-direction: column; margin-bottom: 0; }
+  /* The conversation fills only the space left *below* the top row. flex-basis 0
+     + min-height:0 stops its content from pushing the top row up/under it; the
+     inner #chat scrolls instead. */
+  .conversation-card { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+  @media (max-width: 1040px) {
+    .top-row { grid-template-columns: 1fr; height: auto; }
+    .col.side { display: block; }
+  }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
     padding: 14px 16px; margin-bottom: 14px;
@@ -48,8 +69,11 @@
     display: grid;
     grid-template-columns: repeat(8, 1fr);
     grid-template-rows: repeat(8, 1fr);
-    width: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
     aspect-ratio: 1 / 1;
+    max-width: 100%;
+    margin: 0 auto;
     border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
   }
   .sq {
@@ -74,10 +98,17 @@
   table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
   table.moves td { padding: 3px 6px; border-bottom: 1px solid #f0f1f4; }
   table.moves td.num { color: var(--muted); width: 34px; }
+  /* The right column is a flex stack that stretches to the (pinned) top-row
+     height; the Moves list scrolls within whatever height is left after the
+     Game card. The .top-row height cap, not a fixed px here, bounds it. */
+  .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  .side .card { margin-bottom: 0; }
+  .moves-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .moves-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
   .chat-head h2 { margin: 0 0 10px; }
   .toggle { font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
-  #chat { max-height: 420px; overflow-y: auto; font-size: 13px; }
+  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; font-size: 13px; }
   .msg { border-left: 3px solid var(--border); padding: 6px 10px; margin-bottom: 8px; word-break: break-word; }
   .msg.user { border-left-color: #9aa3b2; color: var(--muted); }
   .msg.assistant { border-left-color: var(--accent); background: #fbfcfe; }
@@ -86,9 +117,16 @@
   .msg.black { border-left-color: #55606f; }
   .msg .role { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .6px; }
   .msg.live { border-left-color: var(--accent); background: #fbfcfe; }
-  /* The chain of thought is plain grey text, not a folded block. */
-  .cot { margin-top: 6px; color: var(--muted); background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
-  .cot .cot-label { font-size: 10px; text-transform: uppercase; letter-spacing: .6px; opacity: .75; margin-bottom: 2px; }
+  /* The chain of thought lives in a collapsible <details>. It is expanded while
+     the live reply is still only thinking, and collapsed (both live, the moment
+     spoken content starts, and in history) otherwise. */
+  details.cot-box { border: 1px solid var(--border); border-radius: 6px; background: #f6f7f9; margin-bottom: 6px; }
+  details.cot-box > summary {
+    cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--muted); padding: 5px 8px; user-select: none;
+  }
+  details.cot-box > summary::marker { color: var(--muted); }
+  details.cot-box > .md { padding: 0 8px 8px; }
   /* Markdown produced by renderMarkdown() */
   .md p { margin: 4px 0; }
   .md p:first-child { margin-top: 0; }
@@ -130,8 +168,10 @@
 
 <div class="page">
   <div id="banner" class="hidden"></div>
-  <div class="layout">
-    <div class="card">
+  <main class="app">
+    <section class="top-row">
+      <div class="col board-col">
+        <div class="card board-card">
       <h2>Board</h2>
       <div id="board"></div>
       <div class="coords"><span id="turn-label"></span></div>
@@ -146,9 +186,10 @@
         </select>
       </div>
       <div class="hint" id="board-hint">Click a piece, then a highlighted target square.</div>
-    </div>
+        </div>
+      </div>
 
-    <div>
+      <div class="col side">
       <div class="card">
         <h2>Game</h2>
         <div class="status" id="status"></div>
@@ -182,21 +223,22 @@
           <button class="danger" id="resign">Resign (human side)</button>
         </div>
       </div>
-      <div class="card">
+      <div class="card moves-card">
         <h2>Moves</h2>
-        <table class="moves" id="moves"></table>
-      </div>
-      <div class="card">
-        <div class="chat-head">
-          <h2>Agent conversation</h2>
-          <label class="toggle">
-            <input type="checkbox" id="show-reasoning" /> show chain of thought
-          </label>
+        <div class="moves-scroll">
+          <table class="moves" id="moves"></table>
         </div>
-        <div id="chat"></div>
       </div>
+      </div>
+    </section>
+
+    <div class="card conversation-card">
+      <div class="chat-head">
+        <h2>Agent conversation</h2>
+      </div>
+      <div id="chat"></div>
     </div>
-  </div>
+  </main>
 </div>
 
 <script>
@@ -209,6 +251,9 @@ let refreshTimer = null;
 let source = null;
 // Holds the in-progress streamed message for the side currently "writing".
 let liveDelta = null;
+// The live bubble's DOM node, updated in place during streaming so frequent
+// deltas never rebuild the whole chat (which would reset expanded history).
+let liveBubbleEl = null;
 // When the LLM crosses a tool boundary mid-turn (think -> tool -> think), the
 // next delta(s) must be preceded by a horizontal rule so the earlier thinking
 // stays visible and the phases stay separated. livePendingSep marks which
@@ -456,42 +501,50 @@ function renderMarkdown(text) {
   return blocks.join("");
 }
 
+// Build a collapsible chain-of-thought block. `open` controls whether it starts
+// expanded: the live reply keeps it open while it is still only thinking and
+// collapses it the moment spoken content starts; history is always collapsed.
+function cotBlock(reasoning, open) {
+  if (!reasoning) return "";
+  return `<details class="cot-box"${open ? " open" : ""}>` +
+    `<summary>chain of thought</summary>` +
+    `<div class="md">${renderMarkdown(reasoning)}</div>` +
+    `</details>`;
+}
+
 // One merged stream: what both agents said, in the order they said it.
 // Prompts, tool calls and tool results are deliberately left out.
 function renderChat() {
   const entries = state.conversation || [];
-  const showReasoning = document.getElementById("show-reasoning").checked;
   const parts = [];
   for (const entry of entries) {
     const content = (entry.content || "").trim();
     const reasoning = (entry.reasoning || "").trim();
-    // Nothing to show unless the box has spoken text, or the chain of
-    // thought is switched on.
-    if (!content && !(showReasoning && reasoning)) continue;
+    // Skip entries that have neither spoken text nor a chain of thought.
+    if (!content && !reasoning) continue;
     const body = content ? `<div class="md">${renderMarkdown(content)}</div>` : "";
-    const cot = (showReasoning && reasoning)
-      ? `<div class="cot"><div class="cot-label">chain of thought</div><div class="md">${renderMarkdown(reasoning)}</div></div>`
-      : "";
+    // History always shows the chain of thought collapsed.
+    const cot = cotBlock(reasoning, false);
     parts.push(
-      `<div class="msg ${entry.side}"><div class="role">${entry.side} · move ${Math.ceil(entry.ply / 2)}</div>${body}${cot}</div>`
+      `<div class="msg ${entry.side}"><div class="role">${entry.side} · move ${Math.ceil(entry.ply / 2)}</div>${cot}${body}</div>`
     );
   }
   // While the side to move is replying, show the live streamed text as a
   // temporary bubble at the bottom. It is replaced by the authoritative
   // conversation as soon as the game state is refreshed.
-  if (liveDelta && (liveDelta.content || (showReasoning && liveDelta.reasoning))) {
+  if (liveDelta) {
     const body = liveDelta.content
       ? `<div class="md">${renderMarkdown(liveDelta.content)}</div>`
       : "";
-    const cot = (showReasoning && liveDelta.reasoning)
-      ? `<div class="cot"><div class="cot-label">chain of thought</div><div class="md">${renderMarkdown(liveDelta.reasoning)}</div></div>`
-      : "";
+    // The chain of thought is expanded only until content begins to stream.
+    const cot = cotBlock(liveDelta.reasoning, !liveDelta.content);
     parts.push(
-      `<div class="msg ${liveDelta.side} live"><div class="role">${liveDelta.side} · writing…</div>${body}${cot}</div>`
+      `<div class="msg ${liveDelta.side} live"><div class="role">${liveDelta.side} · writing…</div>${cot}${body}</div>`
     );
   }
-  if (!parts.length) { chatEl.innerHTML = '<div class="hint">Nothing said yet.</div>'; return; }
+  if (!parts.length) { chatEl.innerHTML = '<div class="hint">Nothing said yet.</div>'; liveBubbleEl = null; return; }
   chatEl.innerHTML = parts.join("");
+  liveBubbleEl = liveDelta ? chatEl.querySelector(".msg.live") : null;
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
@@ -513,7 +566,20 @@ function accumulateDelta(payload) {
     if (livePendingSep.reasoning) { liveDelta.reasoning += STREAM_SEP; livePendingSep.reasoning = false; }
     liveDelta.reasoning += payload.reasoning;
   }
-  renderChat();
+  updateLiveBubble();
+}
+
+// Update only the live bubble in place so frequent deltas never rebuild the
+// whole chat (which would reset any history the user has expanded).
+function updateLiveBubble() {
+  if (!liveBubbleEl) { renderChat(); return; }
+  const body = liveDelta.content
+    ? `<div class="md">${renderMarkdown(liveDelta.content)}</div>`
+    : "";
+  // Expanded while still thinking, collapsed once spoken content streams in.
+  const cot = cotBlock(liveDelta.reasoning, !liveDelta.content);
+  liveBubbleEl.innerHTML = `<div class="role">${liveDelta.side} · writing…</div>${cot}${body}`;
+  chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 function renderBanner() {
@@ -574,8 +640,6 @@ function flash(message) {
   banner.textContent = message;
   setTimeout(() => { if (!state.finished) banner.classList.add("hidden"); renderBanner(); }, 2500);
 }
-
-document.getElementById("show-reasoning").addEventListener("change", renderChat);
 
 document.getElementById("play").addEventListener("click", () => {
   const value = document.getElementById("san").value.trim();
@@ -701,6 +765,7 @@ function connect() {
     if (payload.type === "turn_start") {
       liveDelta = null;
       livePendingSep = { content: false, reasoning: false };
+      liveBubbleEl = null;
       return;
     }
 

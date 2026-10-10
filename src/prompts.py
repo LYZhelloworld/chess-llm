@@ -5,7 +5,7 @@ All strings are in English by project convention.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 SYSTEM_PROMPT = """You are a grandmaster-strength chess agent playing the {side} pieces in a \
 real game.
@@ -22,9 +22,11 @@ public text short.
 
 # How you play
 1. Reason privately about the position: material, king safety, tactics, threats.
-2. Call `get_legal_moves` (or `get_board` / `get_board_ascii`) whenever you need \
-ground truth. Never guess whether a move is legal - SAN disambiguation mistakes \
-are the most common failure.
+2. The legal moves are listed in every turn prompt, so you usually do not need \
+to look them up. If that list is stale or you want to double-check, call \
+`get_legal_moves` (or `get_board` / `get_board_ascii`) for ground truth. Never \
+guess whether a move is legal - SAN disambiguation mistakes are the most common \
+failure.
 3. Use `try_make_move` to test a line of play before committing. Remember the \
 side alternation rule: if the first move belongs to white, the second must \
 belong to black, the third to white, and so on. `try_make_move` never changes \
@@ -57,6 +59,12 @@ Last move played: {last_move}
 ASCII board (rank 8 on top, file a on the left):
 {ascii}
 
+Material balance (P=1, N=3, B=3, R=5, Q=9; king excluded): {material}
+
+Legal moves (SAN - `make_move` accepts exactly one of these):
+{legal_moves}
+
+{opponent_section}
 Think privately, say something brief if you want to, then play your move with \
 `make_move`.
 """
@@ -86,8 +94,24 @@ def system_prompt(side: str) -> str:
     return SYSTEM_PROMPT.format(side=side)
 
 
-def turn_prompt(engine: Any, side: str) -> str:
-    """Build the per-turn user message from the live engine."""
+def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -> str:
+    """Build the per-turn user message from the live engine.
+
+    ``opponent_speech`` is the opponent's most recent public remark, surfaced so
+    the agent can respond to trash talk or threats. ``material`` and the inline
+    legal-move list are computed from the board.
+    """
+
+    legal = engine.legal_moves_san()
+    if legal:
+        legal_block = "\n".join(legal)
+    else:
+        legal_block = "(no legal moves - the position is checkmate or stalemate)"
+
+    if opponent_speech and opponent_speech.strip():
+        opponent_section = f'Opponent\'s last spoken remark: "{opponent_speech.strip()}"'
+    else:
+        opponent_section = "Opponent has not spoken yet this game."
 
     return TURN_PROMPT.format(
         side=side,
@@ -100,6 +124,9 @@ def turn_prompt(engine: Any, side: str) -> str:
         fullmove_number=engine.fullmove_number,
         last_move=engine.last_move_san or "(none, this is the first move)",
         ascii=engine.ascii,
+        material=engine.material_balance_text(side),
+        legal_moves=legal_block,
+        opponent_section=opponent_section,
     )
 
 

@@ -173,6 +173,7 @@ class GameController:
                 emit=self.emit,
                 rng=self.rng,
                 keep_reasoning=client.reasoning_enabled(),
+                opponent_speech=self._last_opponent_speech(side),
             )
         except Exception as exc:  # noqa: BLE001 - never kill the game loop
             LOGGER.exception("LLM turn for %s crashed: %s", side, exc)
@@ -221,6 +222,19 @@ class GameController:
         return {"status": "waiting_human", "side": self.side_to_move}
 
     # ----------------------------------------------------------------- internals
+    def _last_opponent_speech(self, side: str) -> Optional[str]:
+        """The opponent's most recent public remark, or ``None`` if they are silent.
+
+        Only assistant messages with non-empty public text are considered, so a
+        turn that only called tools (no spoken line) is skipped.
+        """
+
+        opponent = BLACK if side == WHITE else WHITE
+        for message in reversed(self.state.chat(opponent)):
+            if message.get("role") == "assistant" and (message.get("content") or "").strip():
+                return message["content"].strip()
+        return None
+
     def _parse_move(self, san_or_uci: str):
         text = (san_or_uci or "").strip()
         if not text:

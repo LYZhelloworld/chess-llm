@@ -32,10 +32,22 @@ Last move played: (none, this is the first move)
 ASCII board (rank 8 on top, file a on the left):
 r n b q k b n r
 ...
+
+Material balance (P=1, N=3, B=3, R=5, Q=9; king excluded): White 39 - Black 39 (material is level); you are level. Values: P=1 N=3 B=3 R=5 Q=9, king excluded.
+
+Legal moves (SAN - `make_move` accepts exactly one of these):
+a3
+b3
+...
+e4
+...
+
+Opponent has not spoken yet this game.
 ```
 
-这里**故意不**附上合法着法列表：模型必须自己去调 `get_legal_moves`，从而让工具
-契约成为唯一的权威来源。
+合法着法列表和每一回合的子力对比都**内联**给出，模型通常不需要再调
+`get_legal_moves`；但当列表过期或需要核对时，该工具（以及 `get_board` /
+`get_board_ascii`）依然可用。对手最近一次的公开发言也会附上，方便 Agent 接话。
 
 ## 2. 循环
 
@@ -89,8 +101,10 @@ assistant 以普通文本写下的所有内容会：
 `auto`（默认）会回传，一旦后端拒绝请求就不再回传；`on` 始终回传；`off` 从不回传。
 `auto` 模式下被拒绝的请求会不带思维链重试一次，重试也失败才按常规退化为随机走子。
 
-公开文本**不会**注入对手的上下文。要改变这一点，在
-`GameController.run_llm_turn` 里加一步：把对手最近一次发言前置到下一回合的提示中。
+公开文本**会**注入对手的上下文。`GameController.run_llm_turn` 会把对手最近一次的
+公开发言（对方历史里最后一条非空的 assistant 消息）以 "Opponent's last spoken
+remark: ..." 的形式前置到回合提示中。同一回合内的发言尚不可用；若对手一直没说话，
+则显示 "Opponent has not spoken yet this game."。
 
 ## 5. 发出的事件
 

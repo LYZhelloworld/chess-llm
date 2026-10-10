@@ -13,20 +13,29 @@
   "tool": "make_move",
   "error": {
     "category": "illegal_move",
-    "message": "Illegal move: 'Nf5' is not one of the 20 legal moves in the current position.",
-    "hint": "Call get_legal_moves and pick one of the returned moves."
+    "message": "Illegal move: illegal san: 'e5' in rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "hint": "Call get_legal_moves and pick one of the returned moves.",
+    "detail": { "legal_moves_sample": ["e4", "Nf3", "..."] }
   },
-  "message": "Illegal move: 'Nf5' ... Call get_legal_moves and pick one of the returned moves."
+  "message": "Illegal move: illegal san: 'e5' ... Call get_legal_moves and pick one of the returned moves."
 }
 ```
 
+每个 `error` 都带有一个稳定的 `category`（让模型能把"格式写错"和"违规"区分开）、一条
+保留 python-chess 原始文本的 `message`、一条 `hint`，有时还有附带的 `detail`。
+`make_move` 的三种走子拒绝分类如下：
+
 | 分类 | 含义 |
 | --- | --- |
-| `invalid_input` | 参数不是合法 JSON、类型不对，或 SAN/FEN 字符串无法解析 |
-| `illegal_move` | 记谱格式正确，但在当前局面下这一着不合法 |
+| `invalid_input` | 参数缺失、类型不对，或 SAN/FEN 字符串无法解析 |
+| `ambiguous_move` | SAN 记谱有歧义——可能有多枚棋子能走到那里（例如两个马都能走到 f3 时的 `Nf3`）；需要消歧，例如 `Nbd2` 与 `Nfd2` |
+| `illegal_move` | 记谱格式正确且无歧义，但在当前局面下这一着不合法 |
 | `illegal_state` | 当前不允许这个动作（例如回合已经落定之后还要走子） |
-| `engine_error` | python-chess 以意外方式拒绝了请求 |
+| `engine_error` | python-chess 以意外方式拒绝了请求，会原样返回原始错误文本 |
 | `unknown_tool` | 模型自己编了个工具名 |
+
+`illegal_move` 还会附带 `detail.legal_moves_sample`（前 32 个合法 SAN 字符串），
+让模型无需再往返一次就能选到真实存在的着法。
 
 ## get_board
 

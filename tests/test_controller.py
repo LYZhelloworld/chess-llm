@@ -59,6 +59,23 @@ def test_llm_turn_moves_and_records_the_transcript(tmp_path):
     assert any(m["role"] == "tool" for m in saved.black_chat_history)
 
 
+def test_controller_surfaces_the_opponents_last_speech(tmp_path):
+    controller, _ = make_controller(
+        tmp_path,
+        white=PlayerSpec.llm("default", "m1"),
+        black=PlayerSpec.llm("default", "m2"),
+    )
+
+    white = FakeClient(move="e4", text="Opening the centre.")
+    controller._clients["white"] = white
+    controller.run_llm_turn()
+
+    # Black is to move; its opponent (white) just spoke.
+    assert controller._last_opponent_speech("black") == "Opening the centre."
+    # White has not yet heard anything from black.
+    assert controller._last_opponent_speech("white") is None
+
+
 def test_checkmate_finishes_and_saves_the_game(tmp_path):
     controller, paths = make_controller(
         tmp_path,

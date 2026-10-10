@@ -124,6 +124,7 @@ def run_llm_turn(
     rng: Optional[random.Random] = None,
     executor_factory: Optional[Callable[[ChessEngine, str], ToolExecutor]] = None,
     keep_reasoning: Optional[bool] = None,
+    opponent_speech: Optional[str] = None,
 ) -> TurnOutcome:
     """Run one agent turn until it plays a move, resigns or runs out of turns.
 
@@ -137,7 +138,10 @@ def run_llm_turn(
     if keep_reasoning is None:
         keep_reasoning = _ask_client(client, "reasoning_enabled", True)
 
-    turn_message: Dict[str, Any] = {"role": "user", "content": turn_prompt(engine, side)}
+    turn_message: Dict[str, Any] = {
+        "role": "user",
+        "content": turn_prompt(engine, side, opponent_speech=opponent_speech),
+    }
     memory.add(turn_message)
     outcome.transcript.append(turn_message)
     emit({"type": "user_prompt", "side": side, "content": turn_message["content"]})

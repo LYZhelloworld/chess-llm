@@ -212,7 +212,7 @@ class GameController:
         }
 
     def step(self) -> Dict[str, Any]:
-        """Advance the game by one action; used by the headless runner."""
+        """Advance the game by one action (an LLM turn or a human prompt)."""
 
         if self.state.finished:
             return {"status": "finished", "result": self.state.result}

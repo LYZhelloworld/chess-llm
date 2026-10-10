@@ -10,10 +10,13 @@ Supported matchups:
 
 | White | Black | How it runs |
 | --- | --- | --- |
-| human | llm | default: you click in the browser, the model answers |
+| human | llm | you click in the browser, the model answers |
 | llm | llm | the server drives both sides automatically |
 | human | human | useful for testing the board without spending tokens |
-| llm | llm (headless) | `--headless`, no browser at all |
+
+All sides are chosen from the web UI when you start a new game (or load an old
+one). There is no command-line flag for the matchup - the server just starts and
+shows an empty board until you pick one.
 
 ## 2. Layered architecture
 
@@ -109,37 +112,35 @@ serving requests, and a lock guarantees only one turn runs at a time.
 ## 6. Configuration
 
 `config.yaml` holds LLM profiles (base URL, `api_key`, `api_key_env` fallback,
-model, temperature, timeouts, retries and the `reasoning` mode), draw
-thresholds, loop limits and storage directories. It is **required**: the repo
-ships `config.example.yaml` only, and
-`src/config.py` raises `ConfigError` (the CLI prints the copy instructions and
-exits with code 2) when `config.yaml` is missing. `config.yaml` is git-ignored
-because it contains API keys.
+model, temperature, timeouts, retries, the `reasoning` mode and the `stream`
+mode), draw thresholds, loop limits and storage directories. The repo ships
+`config.example.yaml` only; copy it to `config.yaml` to start. `config.yaml` is
+git-ignored because it contains API keys.
 
-Precedence for the key: `api_key` in the profile → the `api_key_env` variable →
-`--api-key`. `OPENAI_BASE_URL` / `OPENAI_MODEL` override the default profile,
-and CLI flags override everything. See `README.md` for the flag list.
+The server starts **without** `config.yaml`: you can launch it and play
+human vs human straight away. A profile is only *required* when you start a game
+with an LLM side - you pick it from the web UI's "New game" panel, and the
+profile must have an API key set. Starting an LLM game while the chosen profile
+has no key (or does not exist) is rejected with a clear message instead of
+crashing.
 
-The file is only *required* when at least one side is an LLM: `src.main` loads
-the config with `required=False`, then errors out after the `GameState` is
-built if `config.yaml` is missing and a side is an LLM. A `human-vs-human`
-game therefore starts with no config at all (a notice is printed), which keeps
-the board usable before any endpoint exists.
+Precedence for the key: `api_key` in the profile → the `api_key_env` variable.
+`OPENAI_BASE_URL` / `OPENAI_MODEL` environment variables override the *default*
+profile. There are no command-line flags for keys, models, or sides - those are
+all chosen in the browser.
 
 ## 6.1 Game modes
 
-`--mode` is a shortcut over `--white` / `--black` (which still win when given):
-
-| Mode | White | Black | Needs config |
-| --- | --- | --- | --- |
-| `human-vs-llm` (default) | human | LLM | yes |
-| `llm-vs-human` | LLM | human | yes |
-| `llm-vs-llm` | LLM | LLM | yes |
-| `human-vs-human` | human | human | no |
+The four matchups are the same as above, but the sides are selected in the UI
+rather than on the command line. The web UI's "New game" panel lets you set
+white and black independently to `human` or `llm:<profile>` (where `<profile>`
+is a name from `config.yaml`). "Load" replays a saved game and, optionally,
+overrides either seat with a different `human` / `llm:<profile>` choice; if you
+leave a seat as "(keep stored)" but its saved profile is no longer available,
+the load is rejected and you must specify who plays that side.
 
 `human-vs-human` is hot-seat: the seat that may act is simply the side to move
-(the UI asks the controller, which rejects a move submitted for the wrong
-side). `--headless` still requires both sides to be LLMs.
+(the UI asks the controller, which rejects a move submitted for the wrong side).
 
 ## 7. Related documents
 

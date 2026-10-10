@@ -1,7 +1,7 @@
 # 持久化：games/ 与 logs/
 
-对局 id = `game_yyyyMMdd_HHmmss`。它是一局所有产物的主文件名，也是传给
-`--load` 的值。
+对局 id = `game_yyyyMMdd_HHmmss`。它是一局所有产物的主文件名，也是你在网页
+"Load saved game" 下拉框里选中的条目。
 
 ```
 games/game_20260925_195646.pgn     每步之后重写
@@ -77,8 +77,7 @@ logs/log_20260925_195646.log       追加写入，每行都带前缀
 
 ## 续局
 
-`python -m src.main --load game_20260925_195646` 读取 JSON，通过重放已存着法重建
-棋盘，恢复双方对话历史，并继续写入**同一个**日志文件
-（`log_20260925_195646.log`）。如果对局 id 里解析不出时间戳，就改用当前时间。
-进程退出前一定会保存对局（`atexit` + FastAPI 的 shutdown 钩子），所以 Ctrl-C
-不会丢棋。
+在网页界面里，从 "Load saved game" 选一局再点 Load（可选择性地覆盖任意一方）。
+服务端读取 JSON，通过重放已存着法重建棋盘，恢复双方对话历史，并继续写入**同一个**
+日志文件（`log_20260925_195646.log`）。如果对局 id 里解析不出时间戳，就改用当前
+时间。进程退出前一定会保存对局（FastAPI 的 shutdown 钩子），所以 Ctrl-C 不会丢棋。

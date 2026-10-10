@@ -10,10 +10,12 @@
 
 | 白方 | 黑方 | 怎么跑 |
 | --- | --- | --- |
-| human | llm | 默认：你在浏览器里点击，模型应答 |
+| human | llm | 你在浏览器里点击，模型应答 |
 | llm | llm | 服务端自动驱动双方 |
 | human | human | 不花 token 就能测试棋盘 |
-| llm | llm（无头） | `--headless`，完全不用浏览器 |
+
+所有座位都在开新对局（或读取旧对局）时通过网页界面选择。命令行没有设置对阵
+的参数——服务端启动后只显示空棋盘，等你来选。
 
 ## 2. 分层架构
 
@@ -104,34 +106,29 @@ LLM 回合在 worker 线程里跑（`asyncio.to_thread`），这样事件循环�
 ## 6. 配置
 
 `config.yaml` 保存 LLM profile（base URL、`api_key`、`api_key_env` 兜底、模型、
-temperature、超时、重试、以及 `reasoning` 模式）、和棋阈值、循环上限与存储目录。
-它是**必需的**：仓库
-只提供 `config.example.yaml`，`config.yaml` 缺失时 `src/config.py` 会抛
-`ConfigError`（命令行打印复制指令并以退出码 2 结束）。`config.yaml` 被 git 忽略，
+temperature、超时、重试、以及 `reasoning` 模式与 `stream` 模式）、和棋阈值、循环上限与存储目录。仓库
+只提供 `config.example.yaml`，复制为 `config.yaml` 即可使用。`config.yaml` 被 git 忽略，
 因为里面有 API 密钥。
 
-密钥的优先级：profile 里的 `api_key` → `api_key_env` 指定的环境变量 →
-`--api-key`。`OPENAI_BASE_URL` / `OPENAI_MODEL` 会覆盖默认 profile，命令行参数
-覆盖一切。参数列表见 `README_zh.md`。
+服务端**没有** `config.yaml` 也能启动：你可以直接开起来、不花 token 玩
+human vs human。只有在开一个**带 LLM 的一方**的对局时才需要 profile——你在网页
+"New game" 面板里选它，而且该 profile 必须配了 API key。若在 LLM 对局里选了没有
+key（或不存在）的 profile，会被明确拒绝，而不是崩溃。
 
-不过它只在**至少一方是 LLM** 时才必需：`src.main` 用 `required=False` 加载配置，
-等 `GameState` 建好之后，若 `config.yaml` 缺失且有一方是 LLM 才报错。因此
-`human-vs-human` 完全可以在没有配置文件的情况下启动（只打印一行提示），这样在
-还没有任何可用端点时棋盘依然能用。
+密钥的优先级：profile 里的 `api_key` → `api_key_env` 指定的环境变量。
+`OPENAI_BASE_URL` / `OPENAI_MODEL` 环境变量会覆盖*默认* profile。命令行不再有
+key、model 或座位相关的参数——这些都在浏览器里选。
 
 ## 6.1 对局模式
 
-`--mode` 是 `--white` / `--black` 的快捷写法（显式传入后者时以后者为准）：
-
-| 模式 | 白方 | 黑方 | 需要配置 |
-| --- | --- | --- | --- |
-| `human-vs-llm`（默认） | human | LLM | 是 |
-| `llm-vs-human` | LLM | human | 是 |
-| `llm-vs-llm` | LLM | LLM | 是 |
-| `human-vs-human` | human | human | 否 |
+上面的四种对阵不变，但座位是在界面里选的，而不是命令行。`New game` 面板允许你
+把白方、黑方各自设为 `human` 或 `llm:<profile>`（`<profile>` 是 `config.yaml` 里的
+名字）。`Load` 会重放已存对局，并可选择性地把任意一方覆盖成另一个
+`human` / `llm:<profile>`；若某一方保留 "(keep stored)"，但其存档 profile 已不可
+用，则读取会被拒绝，必须先指定由谁来下这一方。
 
 `human-vs-human` 是热座模式：可以行动的座位就是当前行棋方（界面问控制器，为错误
-一方提交的着法会被拒绝）。`--headless` 仍然要求双方都是 LLM。
+一方提交的着法会被拒绝）。
 
 ## 7. 相关文档
 

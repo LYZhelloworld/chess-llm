@@ -201,22 +201,35 @@ class StorageConfig:
 @dataclass
 class AppConfig:
     llm_profiles: Dict[str, LlmProfile] = field(default_factory=dict)
-    default_profile: str = "default"
     draw: DrawConfig = field(default_factory=DrawConfig)
     loop: LoopConfig = field(default_factory=LoopConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     seed: Optional[int] = None
 
-    def profile(self, name: Optional[str] = None) -> LlmProfile:
-        key = name or self.default_profile
-        if key in self.llm_profiles:
-            return self.llm_profiles[key]
-        base = self.llm_profiles.get(self.default_profile, LlmProfile())
-        return base.override(name=key)
+    def profile(self, name: str) -> LlmProfile:
+        """Look up a configured profile by name.
+
+        The UI always sends an explicit profile name, so a missing name is a
+        configuration error rather than something to paper over with a silent
+        default (which would only surface later as a confusing "no API key".)
+        """
+
+        if name not in self.llm_profiles:
+            known = ", ".join(sorted(self.llm_profiles)) or "(none configured)"
+            raise ConfigError(
+                f"Unknown LLM profile '{name}'. Known profiles: {known}"
+            )
+        return self.llm_profiles[name]
+
+    def has_profile(self, name: str) -> bool:
+        return name in self.llm_profiles
+
+    def is_profile_configured(self, name: str) -> bool:
+        profile = self.llm_profiles.get(name)
+        return profile is not None and profile.configured
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "default_profile": self.default_profile,
             "llm_profiles": {k: v.to_dict() for k, v in self.llm_profiles.items()},
             "draw": self.draw.to_dict(),
             "loop": self.loop.to_dict(),
@@ -257,24 +270,21 @@ def load_config(path: Optional[Path | str] = None, required: bool = True) -> App
     raw_profiles = data.get("llm_profiles") or {}
     for name, raw in raw_profiles.items():
         profiles[name] = LlmProfile.from_dict(str(name), raw or {})
-    if not profiles:
-        profiles["default"] = LlmProfile()
 
     cfg = AppConfig(
         llm_profiles=profiles,
-        default_profile=str(data.get("default_profile", "default")),
         draw=DrawConfig.from_dict(data.get("draw") or {}),
         loop=LoopConfig.from_dict(data.get("loop") or {}),
         storage=StorageConfig.from_dict(data.get("storage") or {}),
         seed=data.get("seed"),
     )
 
-    # Environment convenience overrides for the default profile.
+    # Environment convenience overrides for the conventional "default" profile.
     env_base_url = os.environ.get("OPENAI_BASE_URL")
     env_model = os.environ.get("OPENAI_MODEL")
     if env_base_url or env_model:
-        default = cfg.llm_profiles.get(cfg.default_profile, profiles["default"])
-        cfg.llm_profiles[cfg.default_profile] = default.override(
+        default = cfg.llm_profiles.get("default", LlmProfile())
+        cfg.llm_profiles["default"] = default.override(
             base_url=env_base_url, model=env_model
         )
     return cfg

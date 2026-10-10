@@ -115,6 +115,8 @@
   .hint { color: var(--muted); font-size: 12px; }
   #banner { padding: 10px 16px; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: 12px; font-size: 13px; }
   #banner.hidden { display: none; }
+  .card-sub { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+  .card-sub h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 4px; }
 </style>
 </head>
 <body>
@@ -150,15 +152,34 @@
       <div class="card">
         <h2>Game</h2>
         <div class="status" id="status"></div>
-        <div class="row" style="margin-top:10px">
-          <select id="new-white"><option value="human">white: human</option><option value="llm">white: llm</option></select>
-          <select id="new-black"><option value="human">black: human</option><option value="llm" selected>black: llm</option></select>
-          <button class="secondary" id="new-game">New game</button>
-          <button class="danger" id="resign">Resign (human side)</button>
+
+        <div class="card-sub">
+          <h3>New game</h3>
+          <div class="row" style="margin-top:6px">
+            <select id="new-white"></select>
+            <select id="new-black"></select>
+            <button class="secondary" id="new-game">New game</button>
+          </div>
+          <div class="hint" id="new-hint">Pick who plays each side. An LLM side needs a profile from <code>config.yaml</code>.</div>
         </div>
-        <div class="row" style="margin-top:8px">
-          <select id="saved-games"><option value="">load saved game…</option></select>
-          <button class="secondary" id="load-game">Load</button>
+
+        <div class="card-sub">
+          <h3>Load saved game</h3>
+          <div class="row" style="margin-top:6px">
+            <select id="saved-games"><option value="">load saved game…</option></select>
+            <button class="secondary" id="load-game">Load</button>
+          </div>
+          <label class="toggle" style="margin-top:8px; display:inline-block">
+            <input type="checkbox" id="override-seats" /> override seats
+          </label>
+          <div class="row" id="override-row" style="margin-top:6px; display:none">
+            <select id="load-white"><option value="">(keep stored)</option></select>
+            <select id="load-black"><option value="">(keep stored)</option></select>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <button class="danger" id="resign">Resign (human side)</button>
         </div>
       </div>
       <div class="card">
@@ -275,8 +296,9 @@ function canPlay(side) {
 }
 
 // True while an LLM seat is the side to move and the board is waiting on it.
+// The empty (no-game) state has no game_id, so it never looks like "thinking".
 function waitingOnLlm() {
-  return !!state && !state.finished && !canPlay(state.turn);
+  return !!state && !!state.game_id && !state.finished && !canPlay(state.turn);
 }
 
 // The seat a human controls; in hot-seat mode that is whoever is to move.
@@ -321,9 +343,12 @@ function renderStatus() {
     ? "game over"
     : (waitingOnLlm() ? `${state.turn} is thinking…` : `${state.turn} to move`);
 
-  // Keep the "new game" dropdowns in sync with the game that is loaded.
-  document.getElementById("new-white").value = state.white.kind;
-  document.getElementById("new-black").value = state.black.kind;
+  // Keep the "new game" dropdowns in sync with the game that is loaded (but not
+  // while we are in the empty no-game state, so the user's picks survive).
+  if (state.game_id) {
+    document.getElementById("new-white").value = state.white.kind;
+    document.getElementById("new-black").value = state.black.kind;
+  }
 
   const seats = humanSides();
   const resignBtn = document.getElementById("resign");
@@ -512,7 +537,28 @@ function render() {
 
 async function refresh() {
   const res = await fetch("/api/state");
-  state = await res.json();
+  const data = await res.json();
+  if (!data || !data.game_id) {
+    // No game running yet: show the board (starting position) but no moves.
+    state = {
+      game_id: null,
+      fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      legal_moves: [], moves: [],
+      white: {kind: null, display_name: "white"},
+      black: {kind: null, display_name: "black"},
+      white_name: "white", black_name: "black",
+      turn: "white", check_status: "no check", in_check: false,
+      finished: false, result: null, conversation: [],
+      halfmove_clock: 0, fullmove_number: 1, mode: "—",
+      white_chat_history: [], black_chat_history: [],
+    };
+    liveDelta = null;
+    render();
+    document.getElementById("game-meta").textContent = "no game — start a new game or load a saved one";
+    document.getElementById("turn-label").textContent = "no game loaded";
+    return;
+  }
+  state = data;
   liveDelta = null;  // rebuild chat from the authoritative conversation
   render();
 }
@@ -538,12 +584,54 @@ document.getElementById("play").addEventListener("click", () => {
   sendMove(value);
 });
 
+async function showApiError(res) {
+  let detail = "request failed";
+  try {
+    const data = await res.json();
+    detail = data.detail || JSON.stringify(data);
+  } catch (e) { /* keep default */ }
+  flash(String(detail));
+}
+
+// Profile list (names from config.yaml, plus a configured flag for warnings).
+let profiles = [];
+
+async function loadProfiles() {
+  try {
+    const res = await fetch("/api/profiles");
+    const data = await res.json();
+    profiles = data.profiles || [];
+  } catch (e) { profiles = []; }
+  fillSideSelect(document.getElementById("new-white"), false);
+  fillSideSelect(document.getElementById("new-black"), false);
+  fillSideSelect(document.getElementById("load-white"), true);
+  fillSideSelect(document.getElementById("load-black"), true);
+}
+
+// Build the options for one side: "human", then "llm:<name>" for every profile.
+// When keepStored is true a leading "(keep stored)" option (value "") is added,
+// used by the load-override selectors.
+function fillSideSelect(select, keepStored) {
+  let html = keepStored ? '<option value="">(keep stored)</option>' : "";
+  html += '<option value="human">human</option>';
+  for (const p of profiles) {
+    const warn = p.configured ? "" : " (no API key)";
+    const color = p.configured ? "" : ' style="color:var(--danger)"';
+    html += `<option value="llm:${p.name}"${color}>llm: ${p.name}${warn}</option>`;
+  }
+  select.innerHTML = html;
+}
+
 document.getElementById("new-game").addEventListener("click", async () => {
   const body = {
     white: document.getElementById("new-white").value,
     black: document.getElementById("new-black").value
   };
-  await fetch("/api/new", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const res = await fetch("/api/new", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) { await showApiError(res); return; }
   selected = null;
   await refresh();
 });
@@ -558,10 +646,22 @@ document.getElementById("resign").addEventListener("click", async () => {
 document.getElementById("load-game").addEventListener("click", async () => {
   const gameId = document.getElementById("saved-games").value;
   if (!gameId) return;
-  const res = await fetch("/api/load", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId})});
-  if (!res.ok) { flash("Could not load that game."); return; }
+  const body = { game_id: gameId };
+  if (document.getElementById("override-seats").checked) {
+    body.white = document.getElementById("load-white").value || null;
+    body.black = document.getElementById("load-black").value || null;
+  }
+  const res = await fetch("/api/load", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) { await showApiError(res); return; }
   selected = null;
   await refresh();
+});
+
+document.getElementById("override-seats").addEventListener("change", (e) => {
+  document.getElementById("override-row").style.display = e.target.checked ? "flex" : "none";
 });
 
 async function loadSavedGames() {
@@ -587,7 +687,10 @@ function connect() {
     // refresh, so the partial text we already drew is never wiped.
     if (payload.type === "llm_delta") { accumulateDelta(payload); return; }
 
-    if (payload.type === "game_started" || payload.type === "game_loaded") { loadSavedGames(); }
+    if (payload.type === "game_started" || payload.type === "game_loaded") {
+      loadSavedGames();
+      loadProfiles();
+    }
 
     // A new turn begins: drop the previous live bubble so the next model reply
     // starts clean. We deliberately do NOT refresh here - the previous turn
@@ -643,6 +746,7 @@ function connect() {
 (async function init() {
   await refresh();
   await loadSavedGames();
+  await loadProfiles();
   connect();
   setInterval(loadSavedGames, 30000);
   // Safety net: while an LLM is to move, poll as well as listen, so the board

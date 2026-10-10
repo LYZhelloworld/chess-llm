@@ -16,8 +16,8 @@ here - read the docs instead.
 
 ```bash
 python -m pytest -q                       # run the test suite
-python -m src.main                        # human vs LLM, http://127.0.0.1:8000
-python -m src.main --white llm --black llm --headless
+python -m src.main                        # start the web UI, http://127.0.0.1:8000
+                                          # (pick the matchup in the browser)
 python tests/fake_llm_server.py --port 8099   # stub backend for local smoke tests
 ```
 

@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from src.engine.board import ChessEngine
 from src.engine.errors import (
+    CATEGORY_AMBIGUOUS_MOVE,
     CATEGORY_ILLEGAL_MOVE,
     CATEGORY_ILLEGAL_STATE,
     CATEGORY_INVALID_INPUT,
@@ -215,14 +216,30 @@ class ToolExecutor:
                 "Invalid input: 'move' must be a single SAN string, e.g. \"Nf3\".",
             )
         san = move.strip()
-        legal = self.engine.legal_moves_san()
-        if san not in legal:
-            raise MoveError(
-                CATEGORY_ILLEGAL_MOVE,
-                f"Illegal move: '{san}' is not one of the {len(legal)} legal moves "
-                "in the current position.",
-                detail={"legal_moves_sample": legal[:32]},
-            )
+        try:
+            # Call the raw python-chess parser so we can tell an *ambiguous*
+            # notation (two pieces could move there) apart from an *illegal* one.
+            self.engine.board.parse_san(san)
+        except Exception as exc:  # noqa: BLE001 - reclassified into a typed error
+            name = type(exc).__name__
+            if name == "AmbiguousMoveError":
+                # The raw engine message (e.g. "ambiguous san: 'Nf3' ...") is
+                # echoed after the human explanation.
+                raise MoveError(
+                    CATEGORY_AMBIGUOUS_MOVE,
+                    f"Ambiguous move: '{san}' could refer to more than one piece. {exc}",
+                    detail={"san": san},
+                )
+            err = classify_exception(exc, {"san": san})
+            if err.category == CATEGORY_ILLEGAL_MOVE:
+                legal = self.engine.legal_moves_san()
+                err = MoveError(
+                    CATEGORY_ILLEGAL_MOVE,
+                    err.message,
+                    hint=err.hint,
+                    detail={"legal_moves_sample": legal[:32]},
+                )
+            raise err
 
         record = self.engine.apply_san(san)
         self.committed_move = record.san

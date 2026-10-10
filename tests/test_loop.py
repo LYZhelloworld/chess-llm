@@ -51,6 +51,31 @@ def test_agent_plays_a_move_after_exploring():
     assert roles == ["user", "assistant", "user", "assistant", "tool", "assistant", "tool"]
 
 
+def test_opponent_speech_and_prompt_extras_reach_the_turn_message():
+    engine = ChessEngine()
+    memory = ChatMemory()
+    client = ScriptedClient(
+        text_only("Thinking out loud."),
+        tool_call("make_move", '{"move": "e4"}', content="I play e4."),
+    )
+    run_llm_turn(
+        client,
+        engine,
+        "white",
+        memory,
+        AppConfig(),
+        rng=random.Random(0),
+        opponent_speech="Your move, human.",
+    )
+
+    first_prompt = memory.messages[0]["content"]
+    assert "Your move, human." in first_prompt
+    assert "Material balance" in first_prompt
+    assert "Legal moves" in first_prompt
+    assert "e4" in first_prompt
+
+
+
 def test_agent_is_nudged_when_it_only_talks():
     engine = ChessEngine()
     memory = ChatMemory()

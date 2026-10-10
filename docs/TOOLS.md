@@ -14,20 +14,30 @@ A failed call never raises into the agent loop. It returns:
   "tool": "make_move",
   "error": {
     "category": "illegal_move",
-    "message": "Illegal move: 'Nf5' is not one of the 20 legal moves in the current position.",
-    "hint": "Call get_legal_moves and pick one of the returned moves."
+    "message": "Illegal move: illegal san: 'e5' in rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+    "hint": "Call get_legal_moves and pick one of the returned moves.",
+    "detail": { "legal_moves_sample": ["e4", "Nf3", "..."] }
   },
-  "message": "Illegal move: 'Nf5' ... Call get_legal_moves and pick one of the returned moves."
+  "message": "Illegal move: illegal san: 'e5' ... Call get_legal_moves and pick one of the returned moves."
 }
 ```
 
+Every `error` carries a stable `category` (so the model can tell a formatting
+mistake apart from a rule violation), a `message` that preserves the raw
+python-chess text, a `hint`, and sometimes a `detail` with extra data. The three
+move-rejection categories for `make_move` are distinguished:
+
 | Category | Meaning |
 | --- | --- |
-| `invalid_input` | The argument is not valid JSON, has the wrong type, or the SAN/FEN string cannot be parsed |
-| `illegal_move` | Well-formed notation, but the move is not legal in this position |
+| `invalid_input` | The argument is missing, the wrong type, or the SAN/FEN string cannot be parsed |
+| `ambiguous_move` | The SAN is ambiguous - more than one piece could make it (for example `Nf3` with two knights able to reach f3); disambiguate, e.g. `Nbd2` vs `Nfd2` |
+| `illegal_move` | Well-formed, unambiguous notation, but the move is not legal in this position |
 | `illegal_state` | The action is not allowed now (for example moving after the turn is already committed) |
-| `engine_error` | python-chess rejected the request in an unexpected way |
+| `engine_error` | python-chess rejected the request in an unexpected way; the raw error text is returned |
 | `unknown_tool` | The model invented a tool name |
+
+An `illegal_move` also includes `detail.legal_moves_sample` (the first 32 legal
+SAN strings) so the model can pick a real move without another round trip.
 
 ## get_board
 

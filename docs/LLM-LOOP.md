@@ -34,10 +34,24 @@ Last move played: (none, this is the first move)
 ASCII board (rank 8 on top, file a on the left):
 r n b q k b n r
 ...
+
+Material balance (P=1, N=3, B=3, R=5, Q=9; king excluded): White 39 - Black 39 (material is level); you are level. Values: P=1 N=3 B=3 R=5 Q=9, king excluded.
+
+Legal moves (SAN - `make_move` accepts exactly one of these):
+a3
+b3
+...
+e4
+...
+
+Opponent has not spoken yet this game.
 ```
 
-The legal move list is deliberately *not* included: the model has to ask
-`get_legal_moves`, which keeps the tool contract as the only source of truth.
+The legal moves and a per-turn material balance are included inline so the
+model rarely needs `get_legal_moves`; that tool (and `get_board` /
+`get_board_ascii`) stays available when the list is stale or needs checking.
+The opponent's most recent public remark is appended too, so the agent can
+respond to table talk.
 
 ## 2. The loop
 
@@ -98,9 +112,12 @@ history: `auto` (default) sends it and stops if the backend refuses the request,
 retried once without the chain of thought, and only if that also fails does the
 turn fall back to a random move as usual.
 
-Public text is **not** injected into the opponent's context. To change that,
-add a step in `GameController.run_llm_turn` that prepends the opponent's last
-remark to the next turn prompt.
+Public text **is** injected into the opponent's context. `GameController.
+run_llm_turn` prepends the opponent's most recent public remark (the last
+non-empty assistant message on the other side) to the turn prompt as
+"Opponent's last spoken remark: ...". Remarks spoken in the same turn are not
+available yet, and a silent opponent reads as "Opponent has not spoken yet this
+game."
 
 ## 5. Events emitted
 

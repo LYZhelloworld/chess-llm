@@ -9,6 +9,15 @@ import chess
 
 from src.engine.errors import MoveError, classify_exception
 
+# Piece values used for the per-turn material balance (king excluded on purpose).
+PIECE_VALUES: Dict[int, int] = {
+    chess.PAWN: 1,
+    chess.KNIGHT: 3,
+    chess.BISHOP: 3,
+    chess.ROOK: 5,
+    chess.QUEEN: 9,
+}
+
 
 @dataclass
 class MoveRecord:
@@ -82,6 +91,50 @@ class ChessEngine:
         if not self.board.is_check():
             return "no check"
         return "white is in check" if self.board.turn == chess.WHITE else "black is in check"
+
+    # --------------------------------------------------------- material balance
+    def material_counts(self) -> Dict[str, int]:
+        """Total material value of each side (king excluded)."""
+
+        white = sum(
+            len(self.board.pieces(piece_type, chess.WHITE)) * value
+            for piece_type, value in PIECE_VALUES.items()
+        )
+        black = sum(
+            len(self.board.pieces(piece_type, chess.BLACK)) * value
+            for piece_type, value in PIECE_VALUES.items()
+        )
+        return {"white": white, "black": black}
+
+    def material_balance_text(self, perspective: str = "white") -> str:
+        """One-line material read-out, optionally from ``perspective``'s side."""
+
+        counts = self.material_counts()
+        diff = counts["white"] - counts["black"]
+        if diff == 0:
+            verdict = "material is level"
+        elif diff > 0:
+            verdict = f"white is ahead by {diff} point(s)"
+        else:
+            verdict = f"black is ahead by {-diff} point(s)"
+
+        if perspective == "black":
+            you = diff == 0 and "you are level" or (
+                f"you are ahead by {-diff} point(s)"
+                if diff < 0
+                else f"you are behind by {diff} point(s)"
+            )
+        else:
+            you = diff == 0 and "you are level" or (
+                f"you are ahead by {diff} point(s)"
+                if diff > 0
+                else f"you are behind by {-diff} point(s)"
+            )
+
+        return (
+            f"White {counts['white']} - Black {counts['black']} ({verdict}); {you}. "
+            "Values: P=1 N=3 B=3 R=5 Q=9, king excluded."
+        )
 
     def san_of(self, move: chess.Move) -> str:
         return self.board.san(move)

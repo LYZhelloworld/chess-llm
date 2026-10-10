@@ -55,6 +55,32 @@ def test_make_move_rejects_moves_outside_the_legal_list():
     assert "get_legal_moves" in payload["error"]["hint"]
 
 
+def test_make_move_reports_ambiguous_moves_and_lets_you_disambiguate():
+    # White has knights on d2 and g1, both able to reach f3 -> "Nf3" is ambiguous.
+    engine = ChessEngine("4k3/8/8/8/8/8/3N3K/6N1 w - - 0 1")
+    ex = ToolExecutor(engine, "white")
+
+    ambiguous = call(ex, "make_move", {"move": "Nf3"})
+    assert ambiguous["ok"] is False
+    assert ambiguous["error"]["category"] == "ambiguous_move"
+    assert "disambiguate" in ambiguous["error"]["hint"].lower()
+    # The raw engine message (e.g. "ambiguous san: 'Nf3' ...") is surfaced.
+    assert "ambiguous" in ambiguous["error"]["message"]
+
+    # The disambiguated form is accepted.
+    resolved = call(ex, "make_move", {"move": "Ndf3"})
+    assert resolved["ok"] is True
+
+
+def test_make_move_illegal_error_keeps_the_raw_engine_message():
+    ex = ToolExecutor(ChessEngine(), "white")
+    payload = call(ex, "make_move", {"move": "e5"})
+    # classify_exception preserves the original python-chess text in the message.
+    assert "Illegal move" in payload["error"]["message"]
+    assert "legal_moves_sample" in payload["error"]["detail"]
+
+
+
 def test_make_move_rejects_bad_argument_types():
     ex = ToolExecutor(ChessEngine(), "white")
     payload = call(ex, "make_move", {"move": 42})

@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 CATEGORY_INVALID_INPUT = "invalid_input"
 CATEGORY_ILLEGAL_MOVE = "illegal_move"
+CATEGORY_AMBIGUOUS_MOVE = "ambiguous_move"
 CATEGORY_ILLEGAL_STATE = "illegal_state"
 CATEGORY_ENGINE_ERROR = "engine_error"
 CATEGORY_UNKNOWN_TOOL = "unknown_tool"
@@ -18,6 +19,8 @@ HINTS: Dict[str, str] = {
     CATEGORY_INVALID_INPUT: "Fix the argument format and retry. Standard Algebraic "
     "Notation looks like e4, Nf3, O-O, exd5, Qxd8+, e8=Q.",
     CATEGORY_ILLEGAL_MOVE: "Call get_legal_moves and pick one of the returned moves.",
+    CATEGORY_AMBIGUOUS_MOVE: "Disambiguate the move so exactly one piece is meant, "
+    "for example Nbd2 vs Nfd2, or Rax1 vs R1x1.",
     CATEGORY_ILLEGAL_STATE: "This action is not allowed in the current turn state.",
     CATEGORY_ENGINE_ERROR: "The rule engine rejected the request; retry with a simpler input.",
     CATEGORY_UNKNOWN_TOOL: "Use one of the documented tools.",

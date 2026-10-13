@@ -97,7 +97,7 @@ assistant 以普通文本写下的所有内容会：
 
 思维链同样会被捕获。如果后端把它放在 `reasoning_content`（或 `reasoning` /
 `thinking` / `think`）里，就会存到 assistant 消息的 `reasoning` 字段，并在界面上
-用一个开关控制是否显示。profile 的 `reasoning` 字段决定它是否随历史一起回传：
+以可折叠块展示。profile 的 `reasoning` 字段决定它是否随历史一起回传：
 `auto`（默认）会回传，一旦后端拒绝请求就不再回传；`on` 始终回传；`off` 从不回传。
 `auto` 模式下被拒绝的请求会不带思维链重试一次，重试也失败才按常规退化为随机走子。
 
@@ -112,6 +112,7 @@ remark: ..." 的形式前置到回合提示中。同一回合内的发言尚不�
 | --- | --- |
 | `user_prompt` | 发给模型的回合提示 |
 | `llm_message` | 模型写下的公开文本，以及它的思维链 |
+| `llm_delta` | `llm_message` 的流式片段（content 及/或推理）；UI 就地渲染 |
 | `tool_call` | 工具名 + 原始参数 |
 | `tool_result` | 工具返回的 JSON |
 | `nudge` | "你还没走子"提醒 |

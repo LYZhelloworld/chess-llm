@@ -32,7 +32,7 @@ python tests/fake_llm_server.py --port 8099   # stub backend for local smoke tes
 3. **The rule engine is the only source of truth.** Never compute legality,
    check status or terminal results by hand - call `src/engine`.
 4. **Tools take JSON and return JSON.** A tool must never raise into the agent
-   loop; classify the failure (`invalid_input`, `illegal_move`,
+   loop; classify the failure (`invalid_input`, `illegal_move`, `ambiguous_move`,
    `illegal_state`, `engine_error`, `unknown_tool`) and return it.
 5. **Keep the layers one-directional.** `ui` -> `game` -> `engine`; `agent`
    depends on `tools` and `engine` only. No module imports upwards.

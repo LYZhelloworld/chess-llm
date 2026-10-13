@@ -74,9 +74,9 @@ Agent 循环外没有任何模块 import 提示词模块。
 - **只支持 OpenAI 兼容接口。** 一条代码路径（`chat.completions` + `tools`）覆盖
   OpenAI、DeepSeek、Moonshot、vLLM、Ollama 以及任何说这个协议的后端；换供应商
   只是换一个 `config.yaml` profile。
-- **桌上发言仅供展示。** 模型以普通文本写出的内容会显示在 Web 界面、存进对局
-  JSON 和 PGN 注释，但**不会**注入对手的上下文。这样对手对提示词注入免疫，上下
-  文也保持精简。想反过来就改 `LLM-LOOP.md`。
+- **桌上发言会注入上下文。** 模型以普通文本写出的内容会显示在 Web 界面、存进对局
+  JSON 和 PGN 注释，并作为 `Opponent's last spoken remark` 转发给对手，用于对手下一手
+  开局。这样 Agent 可以接话回击，代价是会受到对方提示词注入的影响。详见 `LLM-LOOP.md`。
 - **思维链是提示词层面的。** 系统提示要求模型私下推理、公开文本简短；不发送任何
   厂商专属的 `reasoning_effort` 参数，因此同一套代码到处都能用。
 - **`try_make_move` 是沙盒。** 它在棋盘的副本上（或在调用方提供的 FEN 上）演算，

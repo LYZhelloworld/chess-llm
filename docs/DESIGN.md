@@ -76,11 +76,11 @@ module except the agent loop.
 - **OpenAI-compatible only.** One code path (`chat.completions` + `tools`)
   covers OpenAI, DeepSeek, Moonshot, vLLM, Ollama and anything else that speaks
   that protocol; switching providers is a `config.yaml` profile.
-- **Table talk is display-only.** Anything the model writes as normal text is
-  shown in the web UI and stored in the game JSON / PGN comments, but it is
-  *not* injected into the opponent's context. This keeps the opponent immune to
-  prompt injection and keeps contexts small. Change `docs/LLM-LOOP.md` if you
-  want to reverse this.
+- **Table talk is injected as context.** Anything the model writes as normal
+  text is shown in the web UI, stored in the game JSON / PGN comments, *and*
+  forwarded to the opponent as `Opponent's last spoken remark` at the start of
+  the opponent's next turn (see `docs/LLM-LOOP.md`). This lets agents respond to
+  trash talk, at the cost of exposing them to prompt injection from the other side.
 - **Chain of thought is prompt-level.** The system prompt asks the model to
   reason privately and keep public text short; no vendor-specific
   `reasoning_effort` parameter is sent, so the same code works everywhere.
@@ -98,13 +98,16 @@ module except the agent loop.
 - `GET /api/state` - full snapshot: FEN, ASCII, legal moves, move list, both
   chat histories, the merged `conversation` shown in the UI, result.
 - `POST /api/move` - `{ "move": "Nf3" }` (SAN or UCI).
-- `POST /api/resign` - `{ "side": "white" }`.
+- `POST /api/resign` - `{ "side": "white", "reason": "..." }` (reason is optional).
 - `POST /api/new` - start a game, choosing human/llm per side.
 - `POST /api/load` - `{ "game_id": "game_20260925_195646" }`.
 - `GET /api/games` - saved game ids.
+- `GET /api/profiles` - every LLM profile from `config.yaml` and whether it is
+  configured (has an API key), used to populate the "New game" / "Load" dropdowns.
 - `GET /api/events` - server-sent events (`turn_start`, `tool_call`,
-  `tool_result`, `llm_message`, `move`, `game_over`, ...). The UI refetches the
-  state whenever an event arrives.
+  `tool_result`, `llm_message`, `llm_delta`, `move`, `game_over`, ...).
+  Streaming events (`llm_delta`) update the UI in place; other events trigger a
+  state refresh.
 
 LLM turns run in a worker thread (`asyncio.to_thread`) so the event loop keeps
 serving requests, and a lock guarantees only one turn runs at a time.

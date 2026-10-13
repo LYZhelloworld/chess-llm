@@ -3,7 +3,7 @@
 [English](README.md) | 简体中文
 
 和 LLM 下国际象棋，或者让两个 LLM 互相下。模型不能直接改写棋盘：它只能调用 JSON
-工具（`get_legal_moves`、`make_move`、`resign` 等），每一步都由
+工具（`get_board`、`get_board_ascii`、`get_legal_moves`、`make_move`、`resign` 等），每一步都由
 [python-chess](https://python-chess.readthedocs.io/) 校验。
 
 ```
@@ -15,7 +15,7 @@ UI / 前端                FastAPI + 单页 HTML 棋盘
         |
 LLM Agent 层            OpenAI 兼容的工具调用
         |
-工具                    get_board / get_legal_moves / try_make_move / make_move / resign
+工具                    get_board / get_board_ascii / get_legal_moves / try_make_move / make_move / resign
 ```
 
 ## 安装
@@ -43,14 +43,14 @@ python -m src.main
   `config.yaml` 里的一个 LLM profile；LLM 一方需要该 profile 配了 API key。
 - **Load saved game** —— 选择一局之前的棋；可选择性地覆盖任意一方（例如换成另一个
   profile，或自己接管某一方）。
-- 轮到人类时点击棋子（或输入 SAN）走子，并实时看双方合并后的对话（思维链由
-  「show chain of thought」开关控制）逐字流出。
+- 轮到人类时点击棋子（或输入 SAN）走子，并实时看双方合并后的对话逐字流出。每一手
+  的思维链显示在一个可折叠块里（模型仍在思考时展开，开始回复后折叠；历史对局默认折叠）。
 
 `human-vs-human` 是热座模式：两名玩家共用棋盘，轮到谁走谁就能走，投降按钮作用于
 当前行棋方。
 
 Web 界面可以点击棋子（或输入 SAN）、在一条合并的时间线里看双方 Agent 说了什么
-（提示词、工具调用与返回结果不显示；思维链由「show chain of thought」开关控制）、
+（提示词、工具调用与返回结果不显示；思维链以可折叠块展示）、
 开新局、加载已保存的对局。
 
 ## 命令行参数
@@ -90,7 +90,7 @@ storage: {games_dir: games, logs_dir: logs, log_level: INFO}
 `api_key: ""` 并设 `api_key_env: OPENAI_API_KEY` —— 那只是要读取的**环境变量名**。
 
 `reasoning` 控制推理模型返回的思维链（`reasoning_content`、`reasoning` 等）。它
-始终会存进对局 JSON，并在界面上由一个开关控制是否显示；这个模式决定它是否也随历史
+始终会存进对局 JSON，并在界面上以可折叠块展示；这个模式决定它是否也随历史
 回传给模型：`auto`（默认）先试，后端拒绝就不再回传；`on` 始终回传；`off` 从不回传。
 
 在界面开新局时，从下拉框为每一方选一个 profile —— 不再有等价的命令行参数。

@@ -4,7 +4,7 @@ English | [简体中文](README_zh.md)
 
 Play chess against an LLM, or watch two LLMs play each other. The model never
 writes to the board directly: it can only call JSON tools
-(`get_legal_moves`, `make_move`, `resign`, ...), and every move is validated by
+(`get_board`, `get_board_ascii`, `get_legal_moves`, `make_move`, `resign`, ...), and every move is validated by
 [python-chess](https://python-chess.readthedocs.io/).
 
 ```
@@ -16,7 +16,7 @@ Rule engine               python-chess
         |
 LLM agent layer           OpenAI-compatible tool calling
         |
-Tools                     get_board / get_legal_moves / try_make_move / make_move / resign
+Tools                     get_board / get_board_ascii / get_legal_moves / try_make_move / make_move / resign
 ```
 
 ## Install
@@ -46,8 +46,9 @@ Then, in the browser:
 - **Load saved game** — pick a previous game; optionally override either seat
   (for example to swap in a different profile, or to take over a seat yourself).
 - Click pieces (or type SAN) to move when it is a human's turn, and watch both
-  agents' merged conversation (chain-of-thought behind a "show chain of thought"
-  toggle) stream in live.
+  agents' merged conversation stream in live. The chain of thought for each turn is
+  shown in a collapsible block (expanded while the model is still thinking, collapsed
+  once its reply starts; past turns start collapsed).
 
 `human-vs-human` is hot-seat: both players share the board, and whoever is to
 move may play; the resign button acts on the side to move.
@@ -93,7 +94,7 @@ that is only the *name* of an environment variable to read.
 
 `reasoning` controls the chain of thought a reasoning model returns
 (`reasoning_content`, `reasoning`, ...). It is always stored in the game JSON
-and shown in the UI behind a toggle; the mode says whether it is also sent back
+and shown in the UI inside a collapsible block; the mode says whether it is also sent back
 with the history: `auto` (default) tries it and stops if the backend refuses,
 `on` always sends it, `off` never sends it.
 

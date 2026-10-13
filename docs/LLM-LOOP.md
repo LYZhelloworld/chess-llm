@@ -105,8 +105,8 @@ Everything the assistant writes as normal text is:
 
 Chain of thought is captured the same way. If the backend returns it in
 `reasoning_content` (or `reasoning` / `thinking` / `think`), it is stored on
-the assistant message under `reasoning` and shown in the browser behind a
-toggle. The profile field `reasoning` decides whether it is sent back with the
+  the assistant message under `reasoning` and shown in the browser inside a
+  collapsible block. The profile field `reasoning` decides whether it is sent back with the
 history: `auto` (default) sends it and stops if the backend refuses the request,
 `on` always sends it, `off` never sends it. In `auto` mode a refused request is
 retried once without the chain of thought, and only if that also fails does the
@@ -125,6 +125,7 @@ game."
 | --- | --- |
 | `user_prompt` | the turn prompt sent to the model |
 | `llm_message` | public text written by the model, plus its chain of thought |
+| `llm_delta` | streaming fragment of `llm_message` (content and/or reasoning); the UI renders it in place |
 | `tool_call` | tool name + raw arguments |
 | `tool_result` | the JSON returned by the tool |
 | `nudge` | "you have not moved yet" reminder |

@@ -20,18 +20,24 @@
     --target: rgba(47, 111, 235, 0.35);
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
+  html { height: 100%; }
   body {
     margin: 0;
     font-family: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     display: flex; flex-direction: column;
-    height: 100vh; overflow: hidden;
+    height: 100vh;
+    height: 100dvh;
+    /* A fixed viewport height keeps the chat and the moves list scrolling
+       inside their cards instead of stretching the page. Scroll (rather than
+       clip) is the escape hatch for viewports too short for the layout. */
+    overflow-y: auto;
   }
-  /* The page fills the viewport; only the Moves list and the chat scroll
-     internally, so there is no page-level scrollbar. */
-  .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-width: 1240px; width: 100%; margin: 0 auto; overflow: hidden; }
+  /* The page keeps the viewport height so the chat and the Moves list scroll
+     inside their cards, but it scrolls (instead of clipping) whenever the
+     layout needs more room than the window has. */
+  .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-width: 1240px; width: 100%; margin: 0 auto; }
   header { flex: 0 0 auto; background: var(--card); border-bottom: 1px solid var(--border); }
   .header-inner {
     display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
@@ -42,23 +48,30 @@
   /* Layout: a vertical stack (main) of a top row and the conversation below.
      The height lives on the first row; both columns stretch to it so the board
      and the right-hand game+moves column are flush. */
-  .app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 40px; overflow: hidden; }
+  .app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 40px; }
   .top-row {
     display: grid; grid-template-columns: minmax(420px, 640px) minmax(320px, 1fr);
     gap: 18px; align-items: stretch;
-    flex: 0 1 auto; min-height: 0;
-    height: min(640px, 72vh);
+    flex: 0 0 auto;
+    /* The board needs a bounded height, but never so much that the page has to
+       hide the conversation: 440px floor, 640px cap, otherwise leave room. */
+    height: clamp(440px, calc(100vh - 360px), 640px);
+    height: clamp(440px, calc(100dvh - 360px), 640px);
   }
   .col { min-width: 0; }
   .col.side { display: flex; flex-direction: column; gap: 14px; }
   .board-card { height: 100%; display: flex; flex-direction: column; margin-bottom: 0; }
-  /* The conversation fills only the space left *below* the top row. flex-basis 0
-     + min-height:0 stops its content from pushing the top row up/under it; the
-     inner #chat scrolls instead. */
-  .conversation-card { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+  /* The conversation takes whatever height is left below the top row but keeps
+     a usable minimum; when even that does not fit, the page scrolls instead of
+     clipping the bottom of the chat. */
+  .conversation-card { flex: 1 1 auto; min-height: 220px; display: flex; flex-direction: column; margin-bottom: 0; }
   @media (max-width: 1040px) {
     .top-row { grid-template-columns: 1fr; height: auto; }
     .col.side { display: block; }
+    /* Stacked layout: the board would otherwise grow to the full column width
+       and become far taller than the screen. */
+    #board { max-width: min(100%, 62vh); }
+    .moves-scroll { max-height: 40vh; }
   }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;

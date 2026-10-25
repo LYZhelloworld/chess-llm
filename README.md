@@ -86,6 +86,7 @@ llm_profiles:
 draw:    {repetition_count: 3, no_progress_moves: 50, max_game_moves: 200}
 loop:    {max_tool_turns: 20, context_turns: 20}
 storage: {games_dir: games, logs_dir: logs, log_level: INFO}
+server:  {allow_remote: false}
 ```
 
 `api_key` holds the key itself and takes priority. If you prefer to keep secrets
@@ -100,6 +101,11 @@ with the history: `auto` (default) tries it and stops if the backend refuses,
 
 When you start a game in the UI, choose a profile per side from the dropdowns —
 there is no command-line equivalent anymore.
+
+`server.allow_remote` (default `false`) decides whether the HTTP API accepts
+requests from other machines. The API has no authentication and every LLM turn
+spends your credits, so even a server bound to `0.0.0.0` only answers loopback
+clients until you opt in. Opening it to the network is your responsibility.
 
 ### 2. Environment variables (optional)
 

@@ -142,12 +142,46 @@ class GameController:
         return {"ok": True, "move": record.san, "uci": record.uci, "side": side}
 
     def resign(self, side: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        """End the game by resignation.
+
+        Only a seat a human actually holds can resign: an API client must not be
+        able to make the model resign, and in a hot-seat game the seat that is
+        allowed to act is the side to move (the same rule the UI applies).
+        """
+
         if self.state.finished:
             return self._error("illegal_state", "The game is already finished.")
+        side = (side or "").strip().lower()
+        if side not in (WHITE, BLACK):
+            return self._error(
+                "invalid_input", "Invalid input: side must be 'white' or 'black'."
+            )
+        if reason is not None and not isinstance(reason, str):
+            return self._error(
+                "invalid_input", "Invalid input: reason must be a string when provided."
+            )
+        if self.state.player(side).kind != HUMAN:
+            return self._error(
+                "illegal_state",
+                f"{side.capitalize()} is an LLM seat; only a human can resign.",
+            )
+        if self._hot_seat() and side != self.side_to_move:
+            return self._error(
+                "illegal_state",
+                f"It is {self.side_to_move}'s turn; only the side to move can "
+                "resign in a hot-seat game.",
+            )
+
+        reason = (reason or "").strip() or None
         result = resignation_result(side, reason)
         LOGGER.info("%s resigned: %s", side, reason or "(no reason given)")
         self._finish(result)
         return {"ok": True, "resigned": side, "result": result.to_dict()}
+
+    def _hot_seat(self) -> bool:
+        """Both seats are human, so the side to move is the one acting."""
+
+        return self.state.white.kind == HUMAN and self.state.black.kind == HUMAN
 
     def run_llm_turn(self) -> Dict[str, Any]:
         """Run the LLM turn for whichever side is to move. Blocking."""

@@ -31,11 +31,13 @@ def make_config() -> AppConfig:
     return cfg
 
 
-def make_client(tmp_path):
+def make_client(tmp_path, allow_remote: bool = False):
     paths = StoragePaths(
         games_dir=tmp_path / "games", logs_dir=tmp_path / "logs"
     ).ensure()
-    app = create_app(config=make_config(), paths=paths)
+    cfg = make_config()
+    cfg.server.allow_remote = allow_remote
+    app = create_app(config=cfg, paths=paths)
     return TestClient(app), paths
 
 
@@ -152,3 +154,64 @@ def test_load_errors_when_stored_profile_is_unavailable(tmp_path):
     res = client.post("/api/load", json={"game_id": gid})
     assert res.status_code == 400
     assert "ghost" in res.json()["detail"]
+
+
+# --------------------------------------------------------------------- resign
+def test_resign_by_the_human_side_ends_the_game(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/resign", json={"side": "white"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["resigned"] == "white"
+    assert body["result"]["winner"] == "black"
+    assert client.get("/api/state").json()["finished"] is True
+
+
+def test_resign_accepts_an_optional_reason(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/resign", json={"side": "white", "reason": "no time"})
+
+    assert res.status_code == 200
+    assert res.json()["result"]["detail"] == "no time"
+
+
+def test_resign_is_rejected_for_the_seat_that_is_not_to_move(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/resign", json={"side": "black"})
+
+    assert res.status_code == 400
+    assert res.json()["error"]["category"] == "illegal_state"
+
+
+def test_resign_requires_a_running_game(tmp_path):
+    client, _ = make_client(tmp_path)
+
+    res = client.post("/api/resign", json={"side": "white"})
+
+    assert res.status_code == 400
+    assert "No game" in res.json()["detail"]
+
+
+# ----------------------------------------------------------- local-only access
+def test_remote_clients_are_refused_by_default(tmp_path):
+    client, _ = make_client(tmp_path)
+    remote = TestClient(client.app, client=("203.0.113.7", 51515))
+
+    res = remote.get("/api/state")
+
+    assert res.status_code == 403
+    assert "local machine" in res.json()["detail"]
+
+
+def test_allow_remote_opens_the_api(tmp_path):
+    client, _ = make_client(tmp_path, allow_remote=True)
+    remote = TestClient(client.app, client=("203.0.113.7", 51515))
+
+    assert remote.get("/api/state").status_code == 200

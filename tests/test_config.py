@@ -9,6 +9,7 @@ import pytest
 from src.config import (
     DEFAULT_CONFIG_PATH,
     EXAMPLE_CONFIG_PATH,
+    AppConfig,
     ConfigError,
     LlmProfile,
     load_config,
@@ -141,34 +142,59 @@ def test_profile_reasoning_defaults_to_auto_and_can_be_turned_off(tmp_path):
     assert cfg.profile("strict").to_dict()["reasoning"] == "off"
 
 
-def test_reasoning_mode_is_normalised():
-    assert normalise_reasoning("auto") == "auto"
-    assert normalise_reasoning("ON") == "on"
-    assert normalise_reasoning(True) == "on"
-    assert normalise_reasoning("false") == "off"
-    assert normalise_reasoning(False) == "off"
-    assert normalise_reasoning(None) == "auto"
-    assert normalise_reasoning("nonsense") == "auto"
-
-
-def test_profile_reasoning_defaults_to_auto_and_can_be_turned_off(tmp_path):
-    path = tmp_path / "config.yaml"
-    path.write_text(
-        textwrap.dedent(
-            """
-            llm_profiles:
-              default:
-                model: "thinking-model"
-              strict:
-                model: "strict-model"
-                reasoning: off
-            """
+@pytest.mark.parametrize(
+    "body, expected",
+    [
+        ("- just\n- a list\n", "the top level must be a mapping"),
+        ('llm_profiles: "openai"\n', "'llm_profiles' must be a mapping"),
+        (
+            "llm_profiles:\n  openai: sk-secret\n",
+            "llm_profiles.openai must be a mapping",
         ),
-        encoding="utf-8",
-    )
+        ("draw: [1, 2]\n", "'draw' must be a mapping"),
+        ("loop: 20\n", "'loop' must be a mapping"),
+        ("storage: 3\n", "'storage' must be a mapping"),
+        ("server: on\n", "'server' must be a mapping"),
+        ('seed: "abc"\n', "'seed' must be an integer"),
+    ],
+)
+def test_malformed_config_is_reported_with_a_readable_message(tmp_path, body, expected):
+    path = tmp_path / "config.yaml"
+    path.write_text(body, encoding="utf-8")
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path)
+
+    assert expected in str(excinfo.value)
+
+
+def test_invalid_yaml_is_reported_as_a_config_error(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("llm_profiles: {openai: 'sk-\n", encoding="utf-8")
+
+    with pytest.raises(ConfigError) as excinfo:
+        load_config(path)
+
+    assert "YAML" in str(excinfo.value)
+
+
+def test_an_empty_config_file_is_valid_and_fully_defaulted(tmp_path):
+    path = tmp_path / "config.yaml"
+    path.write_text("", encoding="utf-8")
 
     cfg = load_config(path)
 
-    assert cfg.profile("default").reasoning_mode == "auto"
-    assert cfg.profile("strict").reasoning_mode == "off"
-    assert cfg.profile("strict").to_dict()["reasoning"] == "off"
+    assert cfg.llm_profiles == {}
+    assert cfg.server.allow_remote is False
+
+
+def test_server_section_defaults_to_local_only_and_reads_the_flag(tmp_path):
+    # The safe default matters: no authentication, and every turn costs money.
+    assert AppConfig().server.allow_remote is False
+
+    path = tmp_path / "config.yaml"
+    path.write_text('server:\n  allow_remote: "yes"\n', encoding="utf-8")
+    assert load_config(path).server.allow_remote is True
+
+    path.write_text("server:\n  allow_remote: false\n", encoding="utf-8")
+    assert load_config(path).server.allow_remote is False

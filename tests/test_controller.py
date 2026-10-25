@@ -131,6 +131,44 @@ def test_resignation_records_the_result(tmp_path):
     assert load_game(controller.state.game_id, paths).result["winner"] == "black"
 
 
+def test_resignation_is_refused_for_an_llm_seat(tmp_path):
+    # White is the human here, black is the model: an API caller must not be
+    # able to make the model resign.
+    controller, _ = make_controller(tmp_path)
+
+    result = controller.resign("black")
+
+    assert result["ok"] is False
+    assert result["error"]["category"] == "illegal_state"
+    assert controller.finished is False
+
+
+def test_hot_seat_only_allows_the_side_to_move_to_resign(tmp_path):
+    controller, _ = make_controller(
+        tmp_path, white=PlayerSpec.human(), black=PlayerSpec.human()
+    )
+
+    refused = controller.resign("black")
+    assert refused["ok"] is False
+    assert "white" in refused["error"]["message"]
+
+    accepted = controller.resign("white", "   ")
+    assert accepted["ok"] is True
+    assert controller.state.result["winner"] == "black"
+    assert controller.state.result["detail"] == "White resigned."
+
+
+def test_resignation_rejects_bad_input(tmp_path):
+    controller, _ = make_controller(tmp_path)
+
+    assert controller.resign("green")["error"]["category"] == "invalid_input"
+    assert (
+        controller.resign("white", reason=object())["error"]["category"]
+        == "invalid_input"
+    )
+    assert controller.finished is False
+
+
 def test_view_exposes_everything_the_ui_needs(tmp_path):
     controller, _ = make_controller(tmp_path)
     view = controller.view()

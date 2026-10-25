@@ -278,15 +278,31 @@ function fenToSquares(fen) {
   return squares; // index 0 = a8 ... 63 = h1
 }
 
-function squareName(index) {
+// Squares are addressed by name everywhere (clicks, highlights, promotion), so
+// the display order comes from the orientation instead of the FEN order.
+function squareName(index, flipped) {
   const file = index % 8;
-  const rank = 8 - Math.floor(index / 8);
-  return "abcdefgh"[file] + rank;
+  const row = Math.floor(index / 8);
+  return "abcdefgh"[flipped ? 7 - file : file] + (flipped ? row + 1 : 8 - row);
+}
+
+function pieceAt(squares, name) {
+  const file = "abcdefgh".indexOf(name[0]);
+  const rank = parseInt(name[1], 10);
+  return squares[(8 - rank) * 8 + file] || "";
+}
+
+// A single human seat playing black sees the board from black's side. Hot-seat
+// games keep white at the bottom because both players share one screen.
+function boardFlipped() {
+  const seats = humanSides();
+  return seats.length === 1 && seats[0] === "black";
 }
 
 function renderBoard() {
   if (!state) return;
   const squares = fenToSquares(state.fen);
+  const flipped = boardFlipped();
   const legal = new Set((state.legal_moves || []).map(m => m.uci));
   const last = state.moves.length ? state.moves[state.moves.length - 1].uci : null;
   const lastFrom = last ? last.slice(0, 2) : null;
@@ -295,10 +311,12 @@ function renderBoard() {
   boardEl.innerHTML = "";
   for (let i = 0; i < 64; i++) {
     const cell = document.createElement("div");
-    const file = i % 8, rank = 8 - Math.floor(i / 8);
-    cell.className = "sq " + (((file + rank) % 2 === 0) ? "dark" : "light");
-    const name = squareName(i);
-    const piece = squares[i];
+    const name = squareName(i, flipped);
+    const fileIndex = "abcdefgh".indexOf(name[0]);
+    const rank = parseInt(name[1], 10);
+    // a8 and h1 are light squares, so an even file+rank sum means light.
+    cell.className = "sq " + (((fileIndex + rank) % 2 === 0) ? "light" : "dark");
+    const piece = pieceAt(squares, name);
     cell.textContent = piece ? (UNICODE[piece] || piece) : "";
     if (piece && piece === piece.toUpperCase()) cell.style.color = "#fff";
     cell.dataset.square = name;
@@ -703,7 +721,8 @@ document.getElementById("new-game").addEventListener("click", async () => {
 document.getElementById("resign").addEventListener("click", async () => {
   const side = humanSide();
   if (!side) { flash("There is no human side in this game."); return; }
-  await fetch("/api/resign", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({side})});
+  const res = await fetch("/api/resign", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({side})});
+  if (!res.ok) { await showApiError(res); return; }
   await refresh();
 });
 
@@ -752,8 +771,17 @@ function connect() {
     if (payload.type === "llm_delta") { accumulateDelta(payload); return; }
 
     if (payload.type === "game_started" || payload.type === "game_loaded") {
+      // A replacement game must not inherit the previous game's half-streamed
+      // bubble or selection. The server also stops forwarding events from a
+      // game that has been replaced, so nothing else from it can arrive.
+      liveDelta = null;
+      livePendingSep = { content: false, reasoning: false };
+      liveBubbleEl = null;
+      selected = null;
       loadSavedGames();
       loadProfiles();
+      scheduleRefresh();
+      return;
     }
 
     // A new turn begins: drop the previous live bubble so the next model reply

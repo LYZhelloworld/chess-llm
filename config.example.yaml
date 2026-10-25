@@ -73,5 +73,11 @@ storage:
   log_level: "INFO"
   log_to_console: true
 
+server:
+  # Accept HTTP requests from other machines. Keep this false: the API has no
+  # authentication and every LLM turn spends the API credits configured above.
+  # When false, even a server bound to 0.0.0.0 only answers loopback clients.
+  allow_remote: false
+
 # Optional: fixed seed makes random fallback moves reproducible.
 seed: null

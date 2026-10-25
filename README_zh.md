@@ -84,6 +84,7 @@ llm_profiles:
 draw:    {repetition_count: 3, no_progress_moves: 50, max_game_moves: 200}
 loop:    {max_tool_turns: 20, context_turns: 20}
 storage: {games_dir: games, logs_dir: logs, log_level: INFO}
+server:  {allow_remote: false}
 ```
 
 `api_key` 直接写密钥，优先级最高。如果你不想把密钥写进文件，就留空
@@ -94,6 +95,10 @@ storage: {games_dir: games, logs_dir: logs, log_level: INFO}
 回传给模型：`auto`（默认）先试，后端拒绝就不再回传；`on` 始终回传；`off` 从不回传。
 
 在界面开新局时，从下拉框为每一方选一个 profile —— 不再有等价的命令行参数。
+
+`server.allow_remote`（默认 `false`）决定 HTTP API 是否接受来自其他机器的请求。
+该 API 没有鉴权，而且每个 LLM 回合都会花掉你的额度，所以即便服务监听在
+`0.0.0.0`，也只响应本机回环客户端，除非你显式开启。把它开放到网络上由你负责。
 
 ### 2. 环境变量（可选）
 

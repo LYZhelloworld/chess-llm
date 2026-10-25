@@ -13,9 +13,9 @@ import logging
 import sys
 from pathlib import Path
 
-from src.config import DEFAULT_CONFIG_PATH, AppConfig, load_config
+from src.config import DEFAULT_CONFIG_PATH, AppConfig, ConfigError, load_config
 from src.game.storage import StoragePaths, setup_logging
-from src.ui.server import create_app
+from src.ui.server import create_app, is_local_host
 
 LOGGER = logging.getLogger("src.main")
 
@@ -42,8 +42,13 @@ def main(argv: list[str] | None = None) -> int:
     cfg_path = Path(args.config)
     # A missing config is allowed at launch: the UI still loads, but starting an
     # LLM game then fails with a clear "profile not configured" message rather
-    # than crashing here. A human vs human game needs no config at all.
-    config = load_config(cfg_path, required=False)
+    # than crashing here. A human vs human game needs no config at all. A config
+    # that exists but is malformed is reported and the process stops.
+    try:
+        config = load_config(cfg_path, required=False)
+    except ConfigError as exc:
+        LOGGER.error("%s", exc)
+        return 2
     if args.log_level:
         config.storage.log_level = args.log_level
 
@@ -63,6 +68,12 @@ def main(argv: list[str] | None = None) -> int:
     app = create_app(config=config, paths=paths)
     print(f"chess-llm web UI: http://{args.host}:{args.port}")
     print("No game is running yet - create a new game or load a saved one in the browser.")
+    if not config.server.allow_remote and not is_local_host(args.host):
+        print(
+            "note: server.allow_remote is false, so requests from other machines "
+            "will be refused even though the socket is bound to "
+            f"{args.host}."
+        )
     uvicorn.run(app, host=args.host, port=args.port, log_config=None)
     return 0
 

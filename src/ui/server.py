@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -59,6 +60,22 @@ class GameContext:
         except RuntimeError:  # loop already closed
             LOGGER.debug("Event loop closed, dropping event %s", event.get("type"))
 
+    def emit_from(self, controller: GameController, event: Dict[str, Any]) -> None:
+        """Publish an event only while ``controller`` still owns the board.
+
+        A turn runs in a worker thread, so a game can be replaced (new game or
+        load) while a model is still thinking. Without this guard the old game's
+        ``tool_call`` / ``llm_delta`` / ``move`` events would appear in the new
+        game's stream.
+        """
+
+        if controller is not self.controller:
+            LOGGER.debug(
+                "Dropping %s from a game that is no longer live", event.get("type")
+            )
+            return
+        self.emit(event)
+
     def _deliver(self, event: Dict[str, Any]) -> None:
         """Fan an event out to every subscriber; runs on the event loop."""
 
@@ -71,22 +88,28 @@ class GameContext:
 
     def set_controller(self, controller: Optional[GameController]) -> None:
         previous = self.controller
-        self.controller = controller
-        # The controller may have been built before this context existed, in
-        # which case it has no sink - adopt it so its events reach the UI.
-        if controller is not None:
-            controller.set_emit(self.emit)
+        # Close the old game *before* swapping: its "closed" event is about the
+        # game that is still current, so it must pass the emit_from() guard.
         if previous is not None and previous is not controller:
             try:
                 previous.close()
             except Exception:  # noqa: BLE001
                 LOGGER.exception("Failed to close the previous game cleanly")
+        self.controller = controller
+        # The controller may have been built before this context existed, in
+        # which case it has no sink - adopt it so its events reach the UI.
+        if controller is not None:
+            controller.set_emit(
+                lambda event, owner=controller: self.emit_from(owner, event)
+            )
 
     # ------------------------------------------------------------------- turns
     def schedule_turn(self) -> None:
         if self.controller is None:
             return
         if self.task is not None and not self.task.done():
+            # A drive loop is already running. It re-reads self.controller every
+            # iteration, so a freshly swapped game is picked up there.
             return
         self.task = asyncio.create_task(self._drive())
 
@@ -100,21 +123,25 @@ class GameContext:
                     break
                 ply_before = controller.engine.ply
                 await asyncio.to_thread(controller.run_llm_turn)
-                if controller.engine.ply == ply_before and not controller.finished:
-                    # A turn that neither moved nor ended the game leaves the
-                    # same side to move, so the loop below would start it again
-                    # immediately - forever, if the failure repeats (a broken
-                    # profile, a backend that keeps erroring). Stop instead.
+                if controller is not self.controller:
+                    # The game was replaced while that turn ran; this loop owns
+                    # the serialisation, so serve the new game instead of
+                    # leaving it waiting for a scheduled turn nobody will run.
+                    # (No ply check here: the new game has its own count.)
+                    continue
+                if controller.finished or controller.current_player.kind != LLM:
+                    break
+                # A turn can also end without moving (a broken profile, a backend
+                # that keeps erroring). The side to move has not changed, so
+                # retrying it would spin forever; stop and leave the game as is.
+                if controller.engine.ply == ply_before:
                     LOGGER.error(
                         "Turn for %s neither moved nor ended the game; stopping the driver.",
                         controller.side_to_move,
                     )
                     break
-                if controller.current_player.kind == LLM and not controller.finished:
-                    # LLM vs LLM: keep going, but yield so events can flush.
-                    await asyncio.sleep(0)
-                    continue
-                break
+                # LLM vs LLM: keep going, but yield so events can flush.
+                await asyncio.sleep(0)
 
 
 class MoveRequest(BaseModel):
@@ -123,6 +150,10 @@ class MoveRequest(BaseModel):
 
 class ResignRequest(BaseModel):
     side: str = Field(..., description="'white' or 'black'.")
+    # Optional; only humans can resign, and only for their own seat.
+    reason: Optional[str] = Field(
+        default=None, description="Short explanation shown in the game record."
+    )
 
 
 class NewGameRequest(BaseModel):
@@ -163,6 +194,33 @@ def create_app(
 
     app = FastAPI(title="chess-llm", version="0.1.0", lifespan=lifespan)
     app.state.ctx = ctx
+
+    @app.middleware("http")
+    async def local_only(request: Request, call_next):
+        """Refuse requests from other machines unless explicitly allowed.
+
+        The API has no authentication and every LLM turn spends API credits, so
+        binding to 0.0.0.0 must not silently expose it to the network.
+        """
+
+        host = request.client.host if request.client else None
+        if config.server.allow_remote or is_local_host(host):
+            return await call_next(request)
+        LOGGER.warning(
+            "Rejected %s %s from %s: server.allow_remote is false",
+            request.method,
+            request.url.path,
+            host,
+        )
+        return JSONResponse(
+            {
+                "detail": (
+                    "This server only accepts requests from the local machine. "
+                    "Set server.allow_remote: true in config.yaml to allow remote clients."
+                )
+            },
+            status_code=403,
+        )
 
     @app.get("/", response_class=HTMLResponse)
     async def index() -> HTMLResponse:
@@ -206,10 +264,13 @@ def create_app(
     async def post_resign(payload: ResignRequest) -> JSONResponse:
         if ctx.controller is None:
             raise HTTPException(status_code=400, detail="No game is running.")
-        side = payload.side.lower()
+        side = payload.side.strip().lower()
         if side not in (WHITE, BLACK):
             raise HTTPException(status_code=400, detail="side must be 'white' or 'black'")
-        result = ctx.controller.resign(side, payload.reason or None)
+        reason = (payload.reason or "").strip() or None
+        # The controller decides whether this seat may resign at all (human
+        # seat, and in a hot-seat game the side that is to move).
+        result = ctx.controller.resign(side, reason)
         if not result.get("ok"):
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)
@@ -296,6 +357,23 @@ def create_app(
         )
 
     return app
+
+
+def is_local_host(host: Optional[str]) -> bool:
+    """True for loopback clients (plus the in-process test client).
+
+    ``request.client.host`` is an IP for real sockets, but Starlette's
+    ``TestClient`` reports the literal string ``testclient``.
+    """
+
+    if not host:
+        return False
+    if host in ("localhost", "testclient"):
+        return True
+    try:
+        return ipaddress.ip_address(host.split("%")[0]).is_loopback
+    except ValueError:
+        return False
 
 
 def _parse_side(value: Optional[str]) -> tuple[str, Optional[str]]:

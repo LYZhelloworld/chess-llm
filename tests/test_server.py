@@ -2,12 +2,13 @@ import asyncio
 from types import SimpleNamespace
 
 import chess
+import pytest
 
 from src.config import AppConfig
 from src.game.controller import GameController
 from src.game.state import GameState, PlayerSpec
 from src.game.storage import StoragePaths
-from src.ui.server import GameContext
+from src.ui.server import GameContext, is_local_host
 
 
 class ImmediateLoop:
@@ -98,16 +99,50 @@ def test_set_controller_keeps_events_flowing(tmp_path):
 
     asyncio.run(scenario())
 
+def test_events_from_a_replaced_game_are_dropped(tmp_path):
+    """A turn runs in a thread, so a game can be swapped mid-move."""
+
+    async def scenario():
+        ctx, old = make_context(tmp_path)
+        ctx.loop = ImmediateLoop()
+        queue = ctx.subscribe()
+
+        paths = StoragePaths(games_dir=tmp_path / "games", logs_dir=tmp_path / "logs")
+        state = GameState(
+            game_id="game_20260101_000002",
+            start_fen=chess.STARTING_FEN,
+            white=PlayerSpec.human(),
+            black=PlayerSpec.human(),
+        )
+        new = GameController(state, AppConfig(), paths)
+        # The old game is closed while it is still current, so "closed" is
+        # delivered; anything it emits afterwards must not reach the UI.
+        ctx.set_controller(new)
+        next_of_type(queue, "closed")
+
+        old.submit_human_move("e4")
+        assert queue.empty(), "a retired game must not reach the UI"
+
+        new.submit_human_move("d4")
+        assert next_of_type(queue, "move")["move"] == "d4"
+
+    asyncio.run(scenario())
+
 
 class StubTurn:
     """Minimal stand-in for a controller: only what ``_drive`` touches."""
 
-    def __init__(self, kind="llm", stalled=False, stop_after=None):
+    def __init__(
+        self, kind="llm", finish_after_turn=False, stalled=False, stop_after=None
+    ):
         self.finished = False
         self.current_player = SimpleNamespace(kind=kind)
+        self.finish_after_turn = finish_after_turn
         self.stalled = stalled
         self.stop_after = stop_after
         self.turns = 0
+        self.after = None
+        self.emit = None
         # _drive() compares the ply before and after a turn to notice a turn
         # that changed nothing.
         self.engine = SimpleNamespace(ply=0)
@@ -117,7 +152,7 @@ class StubTurn:
         return "white"
 
     def set_emit(self, emit):
-        pass
+        self.emit = emit
 
     def close(self):
         pass
@@ -126,6 +161,11 @@ class StubTurn:
         self.turns += 1
         if not self.stalled:
             self.engine.ply += 1
+        if self.after is not None:
+            callback, self.after = self.after, None
+            callback()
+        if self.finish_after_turn:
+            self.finished = True
         if self.stop_after is not None and self.turns >= self.stop_after:
             self.finished = True
         return {"status": "moved"}
@@ -166,3 +206,61 @@ def test_drive_stops_on_a_turn_that_changes_nothing(tmp_path):
         assert stuck.turns == 1
 
     asyncio.run(scenario())
+
+
+def test_drive_serves_the_game_that_replaced_a_running_turn(tmp_path):
+    async def scenario():
+        paths = StoragePaths(games_dir=tmp_path / "games", logs_dir=tmp_path / "logs")
+        ctx = GameContext(None, AppConfig(), paths)
+        first = StubTurn()
+        second = StubTurn(finish_after_turn=True)
+
+        ctx.set_controller(first)
+        first.after = lambda: ctx.set_controller(second)
+        ctx.schedule_turn()
+        await ctx.task
+
+        assert first.turns == 1
+        # Without the controller re-read in _drive() the new game would wait
+        # forever for a scheduled turn nobody is going to start.
+        assert second.turns == 1
+
+    asyncio.run(scenario())
+
+
+def test_drive_stops_when_the_replacement_game_needs_no_llm(tmp_path):
+    async def scenario():
+        paths = StoragePaths(games_dir=tmp_path / "games", logs_dir=tmp_path / "logs")
+        ctx = GameContext(None, AppConfig(), paths)
+        first = StubTurn()
+        human = StubTurn(kind="human")
+
+        ctx.set_controller(first)
+        first.after = lambda: ctx.set_controller(human)
+        ctx.schedule_turn()
+        await ctx.task
+
+        assert first.turns == 1
+        assert human.turns == 0
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "host, expected",
+    [
+        ("127.0.0.1", True),
+        ("127.0.0.5", True),
+        ("::1", True),
+        ("::1%lo0", True),
+        ("localhost", True),
+        ("testclient", True),
+        ("10.0.0.5", False),
+        ("203.0.113.7", False),
+        ("", False),
+        (None, False),
+        ("not-an-address", False),
+    ],
+)
+def test_is_local_host(host, expected):
+    assert is_local_host(host) is expected

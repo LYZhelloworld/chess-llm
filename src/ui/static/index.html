@@ -51,26 +51,34 @@
   .app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 40px; }
   .top-row {
     display: grid; grid-template-columns: minmax(420px, 640px) minmax(320px, 1fr);
+    /* One row, pinned to the height below. An `auto` row would size itself to
+       the board's intrinsic (square) height, overflow the clamped container and
+       paint over the conversation underneath. */
+    grid-template-rows: minmax(0, 1fr);
     gap: 18px; align-items: stretch;
     flex: 0 0 auto;
-    /* The board needs a bounded height, but never so much that the page has to
-       hide the conversation: 440px floor, 640px cap, otherwise leave room. */
-    height: clamp(440px, calc(100vh - 360px), 640px);
-    height: clamp(440px, calc(100dvh - 360px), 640px);
+    /* 536px is the floor that keeps the right column usable (Game card ~367 +
+       gap 14 + a 150px Moves card), so the column never needs its own
+       scrollbar; 640px is the cap. Anything in between leaves room for the
+       header, padding, gap and the conversation's 220px minimum. */
+    height: clamp(536px, calc(100vh - 360px), 640px);
+    height: clamp(536px, calc(100dvh - 360px), 640px);
   }
-  .col { min-width: 0; }
+  .col { min-width: 0; min-height: 0; }
   .col.side { display: flex; flex-direction: column; gap: 14px; }
-  .board-card { height: 100%; display: flex; flex-direction: column; margin-bottom: 0; }
+  .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
   /* The conversation takes whatever height is left below the top row but keeps
      a usable minimum; when even that does not fit, the page scrolls instead of
      clipping the bottom of the chat. */
   .conversation-card { flex: 1 1 auto; min-height: 220px; display: flex; flex-direction: column; margin-bottom: 0; }
   @media (max-width: 1040px) {
-    .top-row { grid-template-columns: 1fr; height: auto; }
+    .top-row { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
     .col.side { display: block; }
-    /* Stacked layout: the board would otherwise grow to the full column width
-       and become far taller than the screen. */
-    #board { max-width: min(100%, 62vh); }
+    /* Stacked layout: there is no fixed row height to derive the square from,
+       so cap the board by the viewport height instead - otherwise it grows to
+       the full column width and becomes far taller than the screen. */
+    .board-fit { display: block; }
+    #board { height: auto; width: min(100%, 62vh); }
     .moves-scroll { max-height: 40vh; }
   }
   .card {
@@ -78,12 +86,17 @@
     padding: 14px 16px; margin-bottom: 14px;
   }
   .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  /* The board is a square that must fit whatever height the card has left:
+     the wrapper takes the leftover space, the board derives its width from the
+     wrapper's height (height: 100% + aspect-ratio), so it can never grow past
+     the card and overlap the conversation. */
+  .board-fit { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; align-items: center; }
   #board {
     display: grid;
     grid-template-columns: repeat(8, 1fr);
     grid-template-rows: repeat(8, 1fr);
-    flex: 1 1 auto;
-    min-height: 0;
+    height: 100%;
+    width: auto;
     aspect-ratio: 1 / 1;
     max-width: 100%;
     margin: 0 auto;
@@ -111,12 +124,13 @@
   table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
   table.moves td { padding: 3px 6px; border-bottom: 1px solid #f0f1f4; }
   table.moves td.num { color: var(--muted); width: 34px; }
-  /* The right column is a flex stack that stretches to the (pinned) top-row
-     height; the Moves list scrolls within whatever height is left after the
-     Game card. The .top-row height cap, not a fixed px here, bounds it. */
-  .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
+  /* The right column stretches to the (pinned) top-row height; the Moves list
+     scrolls within whatever height is left after the Game card. On very short
+     windows the Game card alone can eat the whole row, so the Moves card keeps
+     a usable minimum and the column itself scrolls instead of collapsing. */
+  .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .side .card { margin-bottom: 0; }
-  .moves-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .side .moves-card { flex: 1 1 auto; min-height: 150px; display: flex; flex-direction: column; }
   /* `overscroll-behavior: contain` is what keeps the page still while the
      inner list scrolls: without it, once the list hits its end the wheel keeps
      going and chains to the page, which is the "the whole page moves when I
@@ -190,7 +204,7 @@
       <div class="col board-col">
         <div class="card board-card">
       <h2>Board</h2>
-      <div id="board"></div>
+      <div class="board-fit"><div id="board"></div></div>
       <div class="coords"><span id="turn-label"></span></div>
       <div class="row" style="margin-top:10px">
         <input type="text" id="san" placeholder="SAN, e.g. Nf3" />

@@ -131,6 +131,43 @@ def test_resignation_records_the_result(tmp_path):
     assert load_game(controller.state.game_id, paths).result["winner"] == "black"
 
 
+class ResigningClient:
+    """Answers with a resign tool call instead of a move."""
+
+    def __init__(self, reason=None):
+        self.reason = reason
+        self.calls = 0
+
+    def chat(self, messages, tools=None):
+        self.calls += 1
+        arguments = {} if self.reason is None else {"reason": self.reason}
+        return AssistantMessage(
+            content="This is lost.",
+            tool_calls=[
+                ToolCall(id=f"call_{self.calls}", name="resign", arguments=json.dumps(arguments))
+            ],
+        )
+
+    def reasoning_enabled(self) -> bool:
+        return True
+
+
+def test_llm_can_resign_through_its_own_tool(tmp_path):
+    controller, paths = make_controller(tmp_path)
+    controller.submit_human_move("e4")
+
+    controller._clients["black"] = ResigningClient("queen is gone")
+    outcome = controller.run_llm_turn()
+
+    assert outcome["status"] == "resigned"
+    assert outcome["side"] == "black"
+    assert controller.finished is True
+    assert controller.state.result["reason"] == "resignation"
+    assert controller.state.result["winner"] == "white"
+    assert controller.state.result["detail"] == "queen is gone"
+    assert load_game(controller.state.game_id, paths).result["winner"] == "white"
+
+
 def test_resignation_is_refused_for_an_llm_seat(tmp_path):
     # White is the human here, black is the model: an API caller must not be
     # able to make the model resign.

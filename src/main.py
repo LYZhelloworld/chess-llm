@@ -36,6 +36,25 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def bind_refusal(host: str, allow_remote: bool) -> str | None:
+    """Return why ``host`` may not be bound, or ``None`` when it is acceptable.
+
+    The API has no authentication and every LLM turn spends real credits, so the
+    default is to listen on loopback only. Binding to ``0.0.0.0`` and rejecting
+    requests afterwards still leaves the port open to scanners and to anything
+    that can get past the middleware, so a non-loopback bind without an explicit
+    opt-in is refused up front instead of being answered with ``403`` later.
+    """
+
+    if allow_remote or is_local_host(host):
+        return None
+    return (
+        f"Refusing to listen on {host}: this API has no authentication and every "
+        "LLM turn spends your credits. Keep the default --host 127.0.0.1, or set "
+        "server.allow_remote: true in config.yaml to expose it on the network."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
@@ -51,6 +70,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.log_level:
         config.storage.log_level = args.log_level
+
+    # Checked before logging is configured: a refused bind must be visible on the
+    # terminal even when storage.log_to_console is false.
+    refusal = bind_refusal(args.host, config.server.allow_remote)
+    if refusal:
+        print(f"chess-llm: {refusal}", file=sys.stderr)
+        return 2
 
     paths = StoragePaths.from_config(config.storage)
     paths.ensure()
@@ -68,12 +94,6 @@ def main(argv: list[str] | None = None) -> int:
     app = create_app(config=config, paths=paths)
     print(f"chess-llm web UI: http://{args.host}:{args.port}")
     print("No game is running yet - create a new game or load a saved one in the browser.")
-    if not config.server.allow_remote and not is_local_host(args.host):
-        print(
-            "note: server.allow_remote is false, so requests from other machines "
-            "will be refused even though the socket is bound to "
-            f"{args.host}."
-        )
     uvicorn.run(app, host=args.host, port=args.port, log_config=None)
     return 0
 

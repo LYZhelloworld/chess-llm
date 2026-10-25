@@ -199,8 +199,10 @@ def create_app(
     async def local_only(request: Request, call_next):
         """Refuse requests from other machines unless explicitly allowed.
 
-        The API has no authentication and every LLM turn spends API credits, so
-        binding to 0.0.0.0 must not silently expose it to the network.
+        ``src.main`` already refuses to bind a non-loopback address unless
+        ``server.allow_remote`` is true, so this is defence in depth: it also
+        covers apps built with ``create_app`` directly (tests, ASGI servers) and
+        anything sitting in front of the socket.
         """
 
         host = request.client.host if request.client else None

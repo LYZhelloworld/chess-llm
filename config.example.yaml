@@ -76,7 +76,8 @@ storage:
 server:
   # Accept HTTP requests from other machines. Keep this false: the API has no
   # authentication and every LLM turn spends the API credits configured above.
-  # When false, even a server bound to 0.0.0.0 only answers loopback clients.
+  # When false, a non-loopback --host is refused at startup, so the port is
+  # never reachable from the network.
   allow_remote: false
 
 # Optional: fixed seed makes random fallback moves reproducible.

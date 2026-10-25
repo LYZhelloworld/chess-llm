@@ -7,7 +7,7 @@ old ``--mode`` / ``--white`` / ``--headless`` flags are gone.
 
 import pytest
 
-from src.main import build_parser
+from src.main import bind_refusal, build_parser
 
 
 def test_parser_defaults_are_server_only():
@@ -34,3 +34,18 @@ def test_parser_rejects_game_flags():
         build_parser().parse_args(["--mode", "llm-vs-llm"])
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--headless"])
+
+
+def test_loopback_binds_are_always_allowed():
+    for host in ("127.0.0.1", "localhost", "::1"):
+        assert bind_refusal(host, allow_remote=False) is None
+
+
+def test_public_bind_is_refused_unless_remote_access_is_opted_in():
+    for host in ("0.0.0.0", "192.168.1.10"):
+        message = bind_refusal(host, allow_remote=False)
+        assert message is not None
+        assert host in message
+        assert "allow_remote" in message
+
+    assert bind_refusal("0.0.0.0", allow_remote=True) is None

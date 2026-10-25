@@ -104,8 +104,10 @@ there is no command-line equivalent anymore.
 
 `server.allow_remote` (default `false`) decides whether the HTTP API accepts
 requests from other machines. The API has no authentication and every LLM turn
-spends your credits, so even a server bound to `0.0.0.0` only answers loopback
-clients until you opt in. Opening it to the network is your responsibility.
+spends your credits, so the default is to listen on `127.0.0.1` only: passing a
+non-loopback `--host` while the flag is `false` is refused at startup instead of
+binding the port and answering `403`. Set it to `true` if you really want the
+network to reach it. Opening it up is your responsibility.
 
 ### 2. Environment variables (optional)
 

@@ -70,7 +70,6 @@
     min-height: 0;
   }
   .col { min-width: 0; min-height: 0; }
-  .col.side { display: flex; flex-direction: column; gap: .875rem; }
   .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
   .conversation-card { min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
   @media (max-width: 1040px) {
@@ -80,11 +79,10 @@
     body { overflow-y: auto; }
     .app { display: flex; flex-direction: column; }
     .top-row { flex: 0 0 auto; grid-template-columns: 1fr; grid-template-rows: none; }
-    .col.side { display: block; }
+    .col.side { display: block; overflow: visible; }
     .board-card { height: auto; }
     .board-fit { display: block; }
     #board { height: auto; width: min(100%, 62vh); }
-    .moves-scroll { max-height: 40vh; }
     .conversation-card { flex: 0 0 auto; height: 60vh; min-height: 0; }
   }
   .card {
@@ -136,18 +134,21 @@
   table.moves { width: 100%; border-collapse: collapse; font-size: .8125rem; }
   table.moves td { padding: .1875rem .375rem; border-bottom: 1px solid #f0f1f4; }
   table.moves td.num { color: var(--muted); width: 2.125rem; }
-  /* The right column stretches to the (pinned) top-row height; the Moves list
-     scrolls within whatever height is left after the Game card. On very short
-     windows the Game card alone can eat the whole row, so the Moves card keeps
-     a usable minimum and the column itself scrolls instead of collapsing. */
-  .side { display: flex; flex-direction: column; gap: .875rem; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  .side .card { margin-bottom: 0; }
-  .side .moves-card { flex: 1 1 auto; min-height: 6.5rem; display: flex; flex-direction: column; }
-  /* `overscroll-behavior: contain` is what keeps the page still while the
-     inner list scrolls: without it, once the list hits its end the wheel keeps
+  /* Game and Moves share one card and one scrollbar: the column is the scroll
+     container and the card is a single unshrinkable block inside it. Giving
+     Moves its own fixed height (and its own scrollbar) meant guessing how much
+     of the row the Game form would leave over - a guess that was wrong as soon
+     as a section grew or the window shrank. Letting the card be as tall as its
+     content and scrolling the column removes both numbers.
+     `overscroll-behavior: contain` is what keeps the page still while the
+     column scrolls: without it, once the list hits its end the wheel keeps
      going and chains to the page, which is the "the whole page moves when I
      scroll the chat" bug that the old `overflow: hidden` was working around. */
-  .moves-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .side { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* Grow to fill the column so a short game still paints one card the full
+     height of the row; never shrink, because the card owns the scroll. */
+  .side .card { flex: 1 0 auto; margin-bottom: 0; }
+  .moves-sub h2 { margin-bottom: .375rem; }
   .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
   .chat-head h2 { margin: 0 0 .625rem; }
   .toggle { font-size: .75rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
@@ -208,14 +209,13 @@
   .card-sub h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 .25rem; }
   /* Short windows are the one case the rem scale cannot rescue: the right
      column is a fixed number of form rows, not a proportional block. Drop the
-     helper copy and tighten the section gaps so the column still fits the row
-     instead of growing its own scrollbar. */
+     helper copy and tighten the section gaps so the column stays readable
+     while it scrolls. */
   @media (max-height: 780px) {
     .hint { display: none; }
     .card-sub { margin-top: .5rem; padding-top: .375rem; }
     .card h2 { margin-bottom: .375rem; }
     .status { font-size: .75rem; gap: .375rem; }
-    .side .moves-card { min-height: 5.5rem; }
   }
 </style>
 </head>
@@ -284,10 +284,9 @@
         <div class="row" style="margin-top:.75rem">
           <button class="danger" id="resign" title="Resign the game.">Resign</button>
         </div>
-      </div>
-      <div class="card moves-card">
-        <h2>Moves</h2>
-        <div class="moves-scroll">
+
+        <div class="card-sub moves-sub">
+          <h2>Moves</h2>
           <table class="moves" id="moves"></table>
         </div>
       </div>

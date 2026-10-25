@@ -18,9 +18,17 @@
     --dark-square: #b58863;
     --select: #f7d774;
     --target: rgba(47, 111, 235, 0.35);
+    /* Height of the conversation card, as a share of the viewport. */
+    --conv-h: clamp(8.75rem, 26vh, 16rem);
   }
   * { box-sizing: border-box; }
-  html { height: 100%; }
+  /* Every length below is expressed in rem and the root font-size follows the
+     viewport height (1.78vh ~= 16px on a 900px-tall window). Shrinking the
+     window therefore scales the whole UI down proportionally - type, padding,
+     controls and the board - instead of leaving fixed-size pieces that no
+     longer fit and force a page scrollbar. The clamp keeps text legible at the
+     bottom and stops it getting comically large on very tall screens. */
+  html { height: 100%; font-size: clamp(10px, 1.78vh, 17px); }
   body {
     margin: 0;
     font-family: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
@@ -29,63 +37,61 @@
     display: flex; flex-direction: column;
     height: 100vh;
     height: 100dvh;
-    /* A fixed viewport height keeps the chat and the moves list scrolling
-       inside their cards instead of stretching the page. Scroll (rather than
-       clip) is the escape hatch for viewports too short for the layout. */
-    overflow-y: auto;
+    /* The document itself never scrolls: the layout is sized from the viewport
+       and any overflow is absorbed by the cards' own scroll areas. */
+    overflow: hidden;
   }
-  /* The page keeps the viewport height so the chat and the Moves list scroll
-     inside their cards, but it scrolls (instead of clipping) whenever the
-     layout needs more room than the window has. */
-  .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-width: 1240px; width: 100%; margin: 0 auto; }
+  .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-width: 77.5rem; width: 100%; margin: 0 auto; }
   header { flex: 0 0 auto; background: var(--card); border-bottom: 1px solid var(--border); }
   .header-inner {
-    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-    padding: 14px 22px;
+    display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+    padding: .875rem 1.375rem;
   }
-  h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
-  .meta { color: var(--muted); font-size: 13px; }
-  /* Layout: a vertical stack (main) of a top row and the conversation below.
-     The height lives on the first row; both columns stretch to it so the board
-     and the right-hand game+moves column are flush. */
-  .app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 40px; }
+  h1 { font-size: 1.125rem; margin: 0; letter-spacing: .3px; }
+  .meta { color: var(--muted); font-size: .8125rem; }
+  /* Layout: a grid whose first row takes all the height the conversation does
+     not need, the second row a fixed share of the viewport. Because the split
+     is resolved by the grid and not by subtracting hard-coded chrome from
+     100vh, the total can never exceed the viewport. */
+  .app {
+    flex: 1 1 auto; min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) var(--conv-h);
+    gap: 1.125rem;
+    padding: 1.125rem 1.375rem;
+  }
   .top-row {
-    display: grid; grid-template-columns: minmax(420px, 640px) minmax(320px, 1fr);
-    /* One row, pinned to the height below. An `auto` row would size itself to
-       the board's intrinsic (square) height, overflow the clamped container and
-       paint over the conversation underneath. */
+    display: grid; grid-template-columns: minmax(24rem, 40rem) minmax(20rem, 1fr);
+    /* One row that fills the grid area. An `auto` row would size itself to the
+       board's intrinsic (square) height, overflow the area and paint over the
+       conversation underneath. */
     grid-template-rows: minmax(0, 1fr);
-    gap: 18px; align-items: stretch;
-    flex: 0 0 auto;
-    /* 536px is the floor that keeps the right column usable (Game card ~367 +
-       gap 14 + a 150px Moves card), so the column never needs its own
-       scrollbar; 640px is the cap. Anything in between leaves room for the
-       header, padding, gap and the conversation's 220px minimum. */
-    height: clamp(536px, calc(100vh - 360px), 640px);
-    height: clamp(536px, calc(100dvh - 360px), 640px);
+    gap: 1.125rem; align-items: stretch;
+    min-height: 0;
   }
   .col { min-width: 0; min-height: 0; }
-  .col.side { display: flex; flex-direction: column; gap: 14px; }
+  .col.side { display: flex; flex-direction: column; gap: .875rem; }
   .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
-  /* The conversation takes whatever height is left below the top row but keeps
-     a usable minimum; when even that does not fit, the page scrolls instead of
-     clipping the bottom of the chat. */
-  .conversation-card { flex: 1 1 auto; min-height: 220px; display: flex; flex-direction: column; margin-bottom: 0; }
+  .conversation-card { min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
   @media (max-width: 1040px) {
-    .top-row { grid-template-columns: 1fr; grid-template-rows: none; height: auto; }
+    /* Stacked layout: there is no room to fit a board plus two cards plus the
+       chat side by side, so columns go vertical and the page is allowed to
+       scroll again - scaling the text down far enough would make it unreadable. */
+    body { overflow-y: auto; }
+    .app { display: flex; flex-direction: column; }
+    .top-row { flex: 0 0 auto; grid-template-columns: 1fr; grid-template-rows: none; }
     .col.side { display: block; }
-    /* Stacked layout: there is no fixed row height to derive the square from,
-       so cap the board by the viewport height instead - otherwise it grows to
-       the full column width and becomes far taller than the screen. */
+    .board-card { height: auto; }
     .board-fit { display: block; }
     #board { height: auto; width: min(100%, 62vh); }
     .moves-scroll { max-height: 40vh; }
+    .conversation-card { flex: 0 0 auto; height: 60vh; min-height: 0; }
   }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 16px; margin-bottom: 14px;
+    padding: .875rem 1rem; margin-bottom: .875rem;
   }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  .card h2 { font-size: .8125rem; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 .625rem; }
   /* The board is a square that must fit whatever height the card has left:
      the wrapper takes the leftover space, the board derives its width from the
      wrapper's height (height: 100% + aspect-ratio), so it can never grow past
@@ -104,7 +110,13 @@
   }
   .sq {
     display: flex; align-items: center; justify-content: center;
-    font-size: clamp(22px, 4.4vw, 54px); cursor: pointer; user-select: none; line-height: 1;
+    /* The board is sized from the row height, so the glyphs follow the viewport
+       height as well, with the width as a ceiling for the stacked layout where
+       the board is capped by the column instead. (Container queries would be
+       the natural tool, but `container-type: inline-size` collapses the board's
+       own height once the width, not the height, determines its size.) */
+    font-size: clamp(1.1rem, min(4.4vh, 4.4vw), 3.2rem);
+    cursor: pointer; user-select: none; line-height: 1;
     aspect-ratio: 1 / 1; min-width: 0; min-height: 0; overflow: hidden;
   }
   .sq.light { background: var(--light-square); }
@@ -116,76 +128,87 @@
   }
   .sq { position: relative; }
   .sq.last { box-shadow: inset 0 0 0 3px rgba(47,111,235,.55); }
-  .coords { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 4px 2px; }
-  .status { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
-  .pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 10px; font-weight: 600; }
+  .coords { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; padding: .25rem .125rem; }
+  .status { display: flex; gap: .625rem; flex-wrap: wrap; font-size: .8125rem; }
+  .pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: .1875rem .625rem; font-weight: 600; }
   .pill.warn { background: #fdeceb; color: var(--danger); }
   .pill.gray { background: #eef0f3; color: var(--muted); }
-  table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.moves td { padding: 3px 6px; border-bottom: 1px solid #f0f1f4; }
-  table.moves td.num { color: var(--muted); width: 34px; }
+  table.moves { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+  table.moves td { padding: .1875rem .375rem; border-bottom: 1px solid #f0f1f4; }
+  table.moves td.num { color: var(--muted); width: 2.125rem; }
   /* The right column stretches to the (pinned) top-row height; the Moves list
      scrolls within whatever height is left after the Game card. On very short
      windows the Game card alone can eat the whole row, so the Moves card keeps
      a usable minimum and the column itself scrolls instead of collapsing. */
-  .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .side { display: flex; flex-direction: column; gap: .875rem; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .side .card { margin-bottom: 0; }
-  .side .moves-card { flex: 1 1 auto; min-height: 150px; display: flex; flex-direction: column; }
+  .side .moves-card { flex: 1 1 auto; min-height: 6.5rem; display: flex; flex-direction: column; }
   /* `overscroll-behavior: contain` is what keeps the page still while the
      inner list scrolls: without it, once the list hits its end the wheel keeps
      going and chains to the page, which is the "the whole page moves when I
      scroll the chat" bug that the old `overflow: hidden` was working around. */
   .moves-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-  .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  .chat-head h2 { margin: 0 0 10px; }
-  .toggle { font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
-  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: 13px; }
-  .msg { border-left: 3px solid var(--border); padding: 6px 10px; margin-bottom: 8px; word-break: break-word; }
+  .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
+  .chat-head h2 { margin: 0 0 .625rem; }
+  .toggle { font-size: .75rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: .8125rem; }
+  .msg { border-left: 3px solid var(--border); padding: .375rem .625rem; margin-bottom: .5rem; word-break: break-word; }
   .msg.user { border-left-color: #9aa3b2; color: var(--muted); }
   .msg.assistant { border-left-color: var(--accent); background: #fbfcfe; }
   .msg.tool { border-left-color: #c7cbd3; }
   .msg.white { border-left-color: #aab4c2; }
   .msg.black { border-left-color: #55606f; }
-  .msg .role { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .6px; }
+  .msg .role { font-size: .6875rem; text-transform: uppercase; color: var(--muted); letter-spacing: .6px; }
   .msg.live { border-left-color: var(--accent); background: #fbfcfe; }
   /* The chain of thought lives in a collapsible <details>. It is expanded while
      the live reply is still only thinking, and collapsed (both live, the moment
      spoken content starts, and in history) otherwise. */
   details.cot-box { border: 1px solid var(--border); border-radius: 6px; background: #f6f7f9; margin-bottom: 6px; }
   details.cot-box > summary {
-    cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
-    color: var(--muted); padding: 5px 8px; user-select: none;
+    cursor: pointer; font-size: .6875rem; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--muted); padding: .3125rem .5rem; user-select: none;
   }
   details.cot-box > summary::marker { color: var(--muted); }
-  details.cot-box > .md { padding: 0 8px 8px; }
+  details.cot-box > .md { padding: 0 .5rem .5rem; }
   /* Markdown produced by renderMarkdown() */
-  .md p { margin: 4px 0; }
+  .md p { margin: .25rem 0; }
   .md p:first-child { margin-top: 0; }
   .md p:last-child { margin-bottom: 0; }
-  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 8px 0 4px; font-size: 14px; }
-  .md ul, .md ol { margin: 4px 0; padding-left: 20px; }
-  .md li { margin: 2px 0; }
-  .md blockquote { margin: 4px 0; padding-left: 8px; border-left: 2px solid var(--border); color: var(--muted); }
-  .md code { background: #eef0f3; border-radius: 4px; padding: 0 3px; font-size: 12px; }
-  .md pre { margin: 6px 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 8px; overflow: auto; font-size: 12px; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: .5rem 0 .25rem; font-size: .875rem; }
+  .md ul, .md ol { margin: .25rem 0; padding-left: 1.25rem; }
+  .md li { margin: .125rem 0; }
+  .md blockquote { margin: .25rem 0; padding-left: .5rem; border-left: 2px solid var(--border); color: var(--muted); }
+  .md code { background: #eef0f3; border-radius: 4px; padding: 0 3px; font-size: .75rem; }
+  .md pre { margin: .375rem 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: .5rem; overflow: auto; font-size: .75rem; }
   .md pre code { background: none; padding: 0; }
   .md a { color: var(--accent); }
-  .md hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
-  pre.json { margin: 4px 0 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 200px; overflow: auto; font-size: 12px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .md hr { border: none; border-top: 1px solid var(--border); margin: .5rem 0; }
+  pre.json { margin: .25rem 0 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: .5rem; max-height: 12.5rem; overflow: auto; font-size: .75rem; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
   input[type=text], select, button {
-    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    font: inherit; padding: .375rem .625rem; border: 1px solid var(--border);
     border-radius: 6px; background: #fff; color: var(--text);
   }
   button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); }
   button.secondary { background: #fff; color: var(--text); }
   button.danger { background: var(--danger); border-color: var(--danger); }
-  input[type=text] { min-width: 90px; }
-  .hint { color: var(--muted); font-size: 12px; }
-  #banner { padding: 10px 16px; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: 12px; font-size: 13px; }
+  input[type=text] { min-width: 5.625rem; }
+  .hint { color: var(--muted); font-size: .75rem; }
+  #banner { padding: .625rem 1rem; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: .75rem; font-size: .8125rem; }
   #banner.hidden { display: none; }
-  .card-sub { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
-  .card-sub h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 4px; }
+  .card-sub { margin-top: .875rem; border-top: 1px solid var(--border); padding-top: .625rem; }
+  .card-sub h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 .25rem; }
+  /* Short windows are the one case the rem scale cannot rescue: the right
+     column is a fixed number of form rows, not a proportional block. Drop the
+     helper copy and tighten the section gaps so the column still fits the row
+     instead of growing its own scrollbar. */
+  @media (max-height: 780px) {
+    .hint { display: none; }
+    .card-sub { margin-top: .5rem; padding-top: .375rem; }
+    .card h2 { margin-bottom: .375rem; }
+    .status { font-size: .75rem; gap: .375rem; }
+    .side .moves-card { min-height: 5.5rem; }
+  }
 </style>
 </head>
 <body>
@@ -206,7 +229,7 @@
       <h2>Board</h2>
       <div class="board-fit"><div id="board"></div></div>
       <div class="coords"><span id="turn-label"></span></div>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:.625rem">
         <input type="text" id="san" placeholder="SAN, e.g. Nf3" />
         <button id="play">Play move</button>
         <select id="promotion" title="promotion piece">
@@ -227,7 +250,7 @@
 
         <div class="card-sub">
           <h3>New game</h3>
-          <div class="row" style="margin-top:6px">
+          <div class="row" style="margin-top:.375rem">
             <select id="new-white"></select>
             <select id="new-black"></select>
             <button class="secondary" id="new-game">New game</button>
@@ -237,20 +260,20 @@
 
         <div class="card-sub">
           <h3>Load saved game</h3>
-          <div class="row" style="margin-top:6px">
+          <div class="row" style="margin-top:.375rem">
             <select id="saved-games"><option value="">load saved game…</option></select>
             <button class="secondary" id="load-game">Load</button>
           </div>
-          <label class="toggle" style="margin-top:8px; display:inline-block">
+          <label class="toggle" style="margin-top:.5rem; display:inline-block">
             <input type="checkbox" id="override-seats" /> override seats
           </label>
-          <div class="row" id="override-row" style="margin-top:6px; display:none">
+          <div class="row" id="override-row" style="margin-top:.375rem; display:none">
             <select id="load-white"><option value="">(keep stored)</option></select>
             <select id="load-black"><option value="">(keep stored)</option></select>
           </div>
         </div>
 
-        <div class="row" style="margin-top:12px">
+        <div class="row" style="margin-top:.75rem">
           <button class="danger" id="resign">Resign (human side)</button>
         </div>
       </div>

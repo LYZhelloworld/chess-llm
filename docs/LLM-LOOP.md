@@ -79,9 +79,9 @@ Exit conditions:
 2. `resign` -> the game ends with a resignation result.
 3. The exchange budget is exhausted -> a **random legal move** is played for the
    agent, logged as `[random fallback]`, and a user message telling the model
-   what happened is appended so the transcript stays coherent. This step is not
-   configurable: without it the turn would leave the same side to move and the
-   driver would retry it immediately.
+   what happened is appended so the transcript stays coherent. A turn has to
+   change the board: one that ends without a move leaves the same side to move,
+   and the driver would start it again immediately.
 4. The backend fails after all retries -> same random-move fallback, with the
    error recorded in `TurnOutcome.error`.
 

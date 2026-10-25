@@ -106,3 +106,18 @@ def test_resignation_result():
     result = resignation_result("white", "hopeless")
     assert result.winner == "black"
     assert result.pgn_result == "0-1"
+
+
+def test_material_balance_is_a_bare_reading_from_each_side():
+    engine = ChessEngine()
+    for san in ["e4", "e5", "Nf3", "Nc6", "Bb5", "a6", "Bxc6"]:
+        engine.apply_san(san)
+
+    # White won a knight, so white is up 3. The text carries no piece weights:
+    # the prompt label around it states those once (see tests/test_prompts.py).
+    assert engine.material_balance_text() == (
+        "White 39 - Black 36 (white is ahead by 3 point(s)); you are ahead by 3 point(s)."
+    )
+    assert engine.material_balance_text("black") == (
+        "White 39 - Black 36 (white is ahead by 3 point(s)); you are behind by 3 point(s)."
+    )

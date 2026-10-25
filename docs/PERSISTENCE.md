@@ -41,8 +41,7 @@ comment, derived from the chat history of the side that played it, e.g.:
     {"role": "tool", "tool_call_id": "call_1", "name": "get_legal_moves", "content": "{\n  \"ok\": true, ... }"}
   ],
   "result": {"winner": null, "reason": "repetition", "detail": "...", "pgn_result": "1/2-1/2"},
-  "finished": true,
-  "seed": null
+  "finished": true
 }
 ```
 

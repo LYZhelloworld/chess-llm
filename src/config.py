@@ -1,8 +1,10 @@
 """Application configuration.
 
-Configuration is loaded from ``config.yaml`` and then refined by environment
-variables and command line arguments. ``config.yaml`` is not shipped with the
-repository: copy ``config.example.yaml`` to ``config.yaml``.
+Configuration is loaded from ``config.yaml``. Command line arguments override a
+couple of runtime knobs (``--port``, ``--log-level``); environment variables
+only supply API keys, through the ``api_key_env`` each profile names.
+``config.yaml`` is not shipped with the repository: copy ``config.example.yaml``
+to ``config.yaml``.
 
 A missing ``config.yaml`` is not fatal - the server still starts and can host a
 human vs human game. A profile is only required once a game has an LLM side.
@@ -210,7 +212,6 @@ class AppConfig:
     draw: DrawConfig = field(default_factory=DrawConfig)
     loop: LoopConfig = field(default_factory=LoopConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
-    seed: Optional[int] = None
 
     def profile(self, name: str) -> LlmProfile:
         """Look up a configured profile by name.
@@ -240,7 +241,6 @@ class AppConfig:
             "draw": self.draw.to_dict(),
             "loop": self.loop.to_dict(),
             "storage": self.storage.to_dict(),
-            "seed": self.seed,
         }
 
 
@@ -310,15 +310,10 @@ def load_config(path: Optional[Path | str] = None, required: bool = True) -> App
             )
         profiles[str(name)] = LlmProfile.from_dict(str(name), raw)
 
-    seed = data.get("seed")
-    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
-        raise ConfigError(f"{cfg_path}: 'seed' must be an integer or null.")
-
     cfg = AppConfig(
         llm_profiles=profiles,
         draw=DrawConfig.from_dict(_section(data, "draw", cfg_path)),
         loop=LoopConfig.from_dict(_section(data, "loop", cfg_path)),
         storage=StorageConfig.from_dict(_section(data, "storage", cfg_path)),
-        seed=seed,
     )
     return cfg

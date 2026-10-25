@@ -40,8 +40,7 @@ logs/log_20260925_195646.log       追加写入，每行都带前缀
     {"role": "tool", "tool_call_id": "call_1", "name": "get_legal_moves", "content": "{\n  \"ok\": true, ... }"}
   ],
   "result": {"winner": null, "reason": "repetition", "detail": "...", "pgn_result": "1/2-1/2"},
-  "finished": true,
-  "seed": null
+  "finished": true
 }
 ```
 

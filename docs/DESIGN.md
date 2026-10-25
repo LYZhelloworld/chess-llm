@@ -89,8 +89,8 @@ module except the agent loop.
 - **`make_move` is strict.** Only strings returned by `get_legal_moves` are
   accepted, one per call, and the call ends the turn.
 - **Failure is never fatal.** A tool error is classified and handed back to the
-  model; a backend failure falls back to a random legal move (seeded, so runs
-  are reproducible) instead of killing the game.
+  model; a backend failure falls back to a random legal move instead of killing
+  the game.
 - **The HTTP API is localhost-only.** The server listens on `127.0.0.1` and the
   web UI is the way in.
 - **Resigning over the API is a human action.** `POST /api/resign` only accepts

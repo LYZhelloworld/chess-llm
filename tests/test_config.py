@@ -176,8 +176,7 @@ def test_profile_reasoning_defaults_to_auto_and_can_be_turned_off(tmp_path):
         ),
         ("draw: [1, 2]\n", "'draw' must be a mapping"),
         ("loop: 20\n", "'loop' must be a mapping"),
-            ("storage: 3\n", "'storage' must be a mapping"),
-            ('seed: "abc"\n', "'seed' must be an integer"),
+        ("storage: 3\n", "'storage' must be a mapping"),
     ],
 )
 def test_malformed_config_is_reported_with_a_readable_message(tmp_path, body, expected):
@@ -208,7 +207,6 @@ def test_an_empty_config_file_is_valid_and_fully_defaulted(tmp_path):
 
     assert cfg.llm_profiles == {}
     assert cfg.loop.max_tool_turns == 20
-    assert cfg.seed is None
 
 
 def test_a_stale_server_section_is_ignored(tmp_path):
@@ -224,4 +222,17 @@ def test_a_stale_server_section_is_ignored(tmp_path):
     cfg = load_config(path)
 
     assert "server" not in cfg.to_dict()
+    assert list(cfg.llm_profiles) == ["a"]
+
+
+def test_a_stale_seed_key_is_ignored(tmp_path):
+    # The seed knob is gone end to end, so `seed: 7` in an older config file is
+    # dropped like any other unknown key instead of reviving something that no
+    # longer exists.
+    path = tmp_path / "config.yaml"
+    path.write_text("seed: 7\nllm_profiles:\n  a: {model: x}\n", encoding="utf-8")
+
+    cfg = load_config(path)
+
+    assert "seed" not in cfg.to_dict()
     assert list(cfg.llm_profiles) == ["a"]

@@ -74,6 +74,3 @@ storage:
   autosave: true
   log_level: "INFO"
   log_to_console: true
-
-# Optional: fixed seed makes random fallback moves reproducible.
-seed: null

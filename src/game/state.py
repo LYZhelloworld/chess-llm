@@ -71,7 +71,6 @@ class GameState:
     black_chat_history: List[Dict[str, Any]] = field(default_factory=list)
     result: Optional[Dict[str, Any]] = None
     finished: bool = False
-    seed: Optional[int] = None
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -158,7 +157,6 @@ class GameState:
             "black_chat_history": self.black_chat_history,
             "result": self.result,
             "finished": self.finished,
-            "seed": self.seed,
         }
 
     @classmethod
@@ -179,7 +177,6 @@ class GameState:
             if data.get("result")
             else None,
             finished=bool(data.get("finished", False)),
-            seed=data.get("seed"),
         )
         return state
 

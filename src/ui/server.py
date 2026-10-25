@@ -161,7 +161,6 @@ class NewGameRequest(BaseModel):
     # config.yaml). The UI always sends an explicit choice - there is no default.
     white: str
     black: str
-    seed: Optional[int] = None
 
 
 class LoadRequest(BaseModel):
@@ -289,7 +288,6 @@ def create_app(
             start_fen=chess.STARTING_FEN,
             white=white,
             black=black,
-            seed=payload.seed if payload.seed is not None else config.seed,
         )
         setup_logging(
             state.game_id,

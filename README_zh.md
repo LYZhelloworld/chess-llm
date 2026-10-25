@@ -65,7 +65,7 @@ Web 界面可以点击棋子（或输入 SAN）、在一条合并的时间线里
 
 ## 配置
 
-模型在 `config.yaml` 里配置，环境变量可作为默认 profile 的可选覆盖。
+模型在 `config.yaml` 里配置。环境变量只用于 API 密钥，而且只在 profile 指明了变量名时才生效。
 
 ### 1. `config.yaml`（推荐）
 
@@ -77,7 +77,7 @@ cp config.example.yaml config.yaml
 
 ```yaml
 llm_profiles:
-  default:   {base_url: "https://api.openai.com/v1",  api_key: "sk-...", model: gpt-4o-mini}
+  openai:    {base_url: "https://api.openai.com/v1",  api_key: "sk-...", model: gpt-4o-mini}
   deepseek:  {base_url: "https://api.deepseek.com/v1", api_key: "sk-...", model: deepseek-chat}
   local:     {base_url: "http://127.0.0.1:11434/v1",   api_key: "sk-no-key", model: qwen2.5:14b, temperature: 0.6, reasoning: auto}
 
@@ -101,13 +101,11 @@ HTTP API 无条件只接受本机请求。它没有鉴权，而且每个 LLM 回
 
 ### 2. 环境变量（可选）
 
-只有 `api_key` 为空的 profile 会用到。此外 `OPENAI_BASE_URL` 与 `OPENAI_MODEL`
-会覆盖默认 profile 的端点和模型：
+`api_key` 为空的 profile 会从它 `api_key_env` 指明的变量里读密钥。除此之外没有别的
+东西能通过环境变量配置 —— 端点和模型永远来自 `config.yaml`：
 
 ```bash
-export OPENAI_API_KEY=sk-...     # 由 "default" profile 通过 api_key_env 读取
-export OPENAI_BASE_URL=...       # 可选，覆盖 base_url
-export OPENAI_MODEL=gpt-4o       # 可选，覆盖 model
+export OPENAI_API_KEY=sk-...     # 由 api_key_env 指向它的 profile 读取
 ```
 
 任何 OpenAI 兼容端点都能用（OpenAI、DeepSeek、Moonshot、vLLM、Ollama、

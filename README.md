@@ -66,8 +66,8 @@ chosen in the browser.
 
 ## Configuration
 
-The model is configured in `config.yaml`, with environment variables as an
-optional override for the default profile.
+The model is configured in `config.yaml`. Environment variables are only used
+for API keys, and only when a profile names one.
 
 ### 1. `config.yaml` (recommended)
 
@@ -79,7 +79,7 @@ cp config.example.yaml config.yaml
 
 ```yaml
 llm_profiles:
-  default:   {base_url: "https://api.openai.com/v1",  api_key: "sk-...", model: gpt-4o-mini}
+  openai:    {base_url: "https://api.openai.com/v1",  api_key: "sk-...", model: gpt-4o-mini}
   deepseek:  {base_url: "https://api.deepseek.com/v1", api_key: "sk-...", model: deepseek-chat}
   local:     {base_url: "http://127.0.0.1:11434/v1",   api_key: "sk-no-key", model: qwen2.5:14b, temperature: 0.6, reasoning: auto}
 
@@ -109,13 +109,12 @@ browser from talking to it through DNS rebinding.
 
 ### 2. Environment variables (optional)
 
-Used only by profiles whose `api_key` is empty. `OPENAI_BASE_URL` and
-`OPENAI_MODEL` additionally override the default profile's endpoint and model:
+A profile whose `api_key` is empty reads the key from the variable named in its
+`api_key_env`. Nothing else is configurable this way — the endpoint and the
+model always come from `config.yaml`:
 
 ```bash
-export OPENAI_API_KEY=sk-...     # read by the "default" profile via api_key_env
-export OPENAI_BASE_URL=...       # optional override of base_url
-export OPENAI_MODEL=gpt-4o       # optional override of model
+export OPENAI_API_KEY=sk-...     # read by whichever profile names it in api_key_env
 ```
 
 Any OpenAI-compatible endpoint works (OpenAI, DeepSeek, Moonshot, vLLM, Ollama,

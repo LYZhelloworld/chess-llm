@@ -133,7 +133,7 @@ human vs human。只有在开一个**带 LLM 的一方**的对局时才需要 pr
 key（或不存在）的 profile，会被明确拒绝，而不是崩溃。
 
 密钥的优先级：profile 里的 `api_key` → `api_key_env` 指定的环境变量。
-`OPENAI_BASE_URL` / `OPENAI_MODEL` 环境变量会覆盖*默认* profile。命令行不再有
+没有任何名字是特殊的：端点和模型只来自 `config.yaml`。命令行不再有
 key、model 或座位相关的参数——这些都在浏览器里选。
 
 ## 6.1 对局模式

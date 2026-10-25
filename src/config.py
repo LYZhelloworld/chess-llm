@@ -85,7 +85,9 @@ def normalise_stream(value: Any) -> str:
 class LlmProfile:
     """Connection parameters for one OpenAI-compatible endpoint."""
 
-    name: str = "default"
+    # Filled in from the key the profile is declared under in config.yaml; the
+    # empty default just marks "not registered yet". No name is special.
+    name: str = ""
     base_url: str = "https://api.openai.com/v1"
     # Direct key. When empty the key is read from the ``api_key_env`` variable.
     api_key: str = ""
@@ -319,13 +321,4 @@ def load_config(path: Optional[Path | str] = None, required: bool = True) -> App
         storage=StorageConfig.from_dict(_section(data, "storage", cfg_path)),
         seed=seed,
     )
-
-    # Environment convenience overrides for the conventional "default" profile.
-    env_base_url = os.environ.get("OPENAI_BASE_URL")
-    env_model = os.environ.get("OPENAI_MODEL")
-    if env_base_url or env_model:
-        default = cfg.llm_profiles.get("default", LlmProfile())
-        cfg.llm_profiles["default"] = default.override(
-            base_url=env_base_url, model=env_model
-        )
     return cfg

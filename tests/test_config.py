@@ -109,6 +109,29 @@ def test_profile_lookup_is_explicit_and_fails_on_unknown(tmp_path):
         cfg.profile("nope")
 
 
+def test_no_profile_name_is_special(tmp_path, monkeypatch):
+    """A profile called `default` used to be magic.
+
+    `OPENAI_BASE_URL` / `OPENAI_MODEL` were applied to whichever profile
+    happened to be named `default`, and one was invented when none existed.
+    The endpoints come from config.yaml alone now, so those variables must have
+    no effect - and no profile may be conjured out of thin air.
+    """
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://elsewhere.example/v1")
+    monkeypatch.setenv("OPENAI_MODEL", "some-other-model")
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        'llm_profiles:\n  openai: {model: "gpt-4o-mini"}\n', encoding="utf-8"
+    )
+
+    cfg = load_config(path)
+
+    assert sorted(cfg.llm_profiles) == ["openai"]
+    assert cfg.profile("openai").base_url == "https://api.openai.com/v1"
+    assert cfg.profile("openai").model == "gpt-4o-mini"
+
+
 def test_reasoning_mode_is_normalised():
     assert normalise_reasoning("auto") == "auto"
     assert normalise_reasoning("ON") == "on"

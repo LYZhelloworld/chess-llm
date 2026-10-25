@@ -17,7 +17,8 @@ class PlayerSpec:
     """Who controls one side: a human or an LLM profile."""
 
     kind: str = HUMAN
-    profile: str = "default"
+    # Empty for a human seat: a person is not played by a profile.
+    profile: str = ""
     model: str = ""
     label: str = ""
 
@@ -41,7 +42,7 @@ class PlayerSpec:
         data = data or {}
         return cls(
             kind=data.get("kind", HUMAN),
-            profile=data.get("profile", "default"),
+            profile=data.get("profile", ""),
             model=data.get("model", ""),
             label=data.get("label", ""),
         )

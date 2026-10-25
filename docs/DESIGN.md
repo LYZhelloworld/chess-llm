@@ -152,9 +152,9 @@ has no key (or does not exist) is rejected with a clear message instead of
 crashing.
 
 Precedence for the key: `api_key` in the profile → the `api_key_env` variable.
-`OPENAI_BASE_URL` / `OPENAI_MODEL` environment variables override the *default*
-profile. There are no command-line flags for keys, models, or sides - those are
-all chosen in the browser.
+No profile name is special: the endpoints and models come from `config.yaml` and
+nothing else. There are no command-line flags for keys, models, or sides - those
+are all chosen in the browser.
 
 ## 6.1 Game modes
 

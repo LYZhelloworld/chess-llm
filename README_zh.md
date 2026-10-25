@@ -84,7 +84,6 @@ llm_profiles:
 draw:    {repetition_count: 3, no_progress_moves: 50, max_game_moves: 200}
 loop:    {max_tool_turns: 20, context_turns: 20}
 storage: {games_dir: games, logs_dir: logs, log_level: INFO}
-server:  {allow_remote: false}
 ```
 
 `api_key` 直接写密钥，优先级最高。如果你不想把密钥写进文件，就留空
@@ -96,10 +95,10 @@ server:  {allow_remote: false}
 
 在界面开新局时，从下拉框为每一方选一个 profile —— 不再有等价的命令行参数。
 
-`server.allow_remote`（默认 `false`）决定 HTTP API 是否接受来自其他机器的请求。
-该 API 没有鉴权，而且每个 LLM 回合都会花掉你的额度，所以默认只监听 `127.0.0.1`：
-在这个开关为 `false` 时传入非回环的 `--host` 会在启动阶段直接被拒绝，而不是先占住
-端口再用 `403` 回应。确实需要网络访问时再把它设为 `true`。开放到网络上由你负责。
+HTTP API 无条件只接受本机请求。它没有鉴权，而且每个 LLM 回合都会花掉你的额度，
+因此只监听 `127.0.0.1`：传入非回环的 `--host` 会在启动阶段直接被拒绝，而不是先占住
+端口再用 `403` 回应。到达服务的请求还会校验 `Host` 头，这一层挡的是浏览器里已打开的
+页面通过 DNS rebinding 打到本机端口。
 
 ### 2. 环境变量（可选）
 

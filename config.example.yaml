@@ -73,12 +73,5 @@ storage:
   log_level: "INFO"
   log_to_console: true
 
-server:
-  # Accept HTTP requests from other machines. Keep this false: the API has no
-  # authentication and every LLM turn spends the API credits configured above.
-  # When false, a non-loopback --host is refused at startup, so the port is
-  # never reachable from the network.
-  allow_remote: false
-
 # Optional: fixed seed makes random fallback moves reproducible.
 seed: null

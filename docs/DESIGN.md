@@ -91,13 +91,15 @@ module except the agent loop.
 - **Failure is never fatal.** A tool error is classified and handed back to the
   model; a backend failure falls back to a random legal move (seeded, so runs
   are reproducible) instead of killing the game.
-- **The HTTP API is local-only by default.** `server.allow_remote: false` makes
-  the launcher refuse to bind anything but a loopback address (`src/main.py`,
-  `bind_refusal`), so the port is never reachable from the network at all. A
-  second `local_only` middleware answers non-loopback clients with `403` as
-  defence in depth for apps built with `create_app` directly. There is no
-  authentication and every LLM turn spends the operator's credits, so remote
-  access must be an explicit choice.
+- **The HTTP API is local-only, with no opt-out.** The launcher refuses to bind
+  anything but a loopback address (`src/main.py`, `bind_refusal`), so the port is
+  never reachable from the network at all - binding `0.0.0.0` and rejecting
+  requests afterwards still leaves the port visible to scanners. A second
+  `local_only` middleware checks the `Host` header and answers `403` otherwise,
+  which is what stops a page in the browser from reaching the API through DNS
+  rebinding; the peer address cannot distinguish those requests, so it is not
+  what gets checked. There is no authentication and every LLM turn spends the
+  operator's credits.
 - **Resigning over the API is a human action.** `POST /api/resign` only accepts
   a human seat (an API caller must not be able to make the model resign), and in
   a hot-seat game only the side to move; the controller enforces this, not just
@@ -123,10 +125,10 @@ module except the agent loop.
   Streaming events (`llm_delta`) update the UI in place; other events trigger a
   state refresh.
 
-A non-loopback `--host` is refused at startup unless `server.allow_remote` is
-true; if it is true, requests from any address are served. The `local_only`
-middleware (`src/ui/server.py`) still rejects non-loopback clients when the flag
-is false, which only matters for apps assembled with `create_app` directly.
+A non-loopback `--host` is refused at startup, and there is no flag to override
+that. The `local_only` middleware (`src/ui/server.py`) additionally rejects
+requests whose `Host` header does not name this machine, so an app assembled with
+`create_app` directly is covered too.
 
 The board is drawn from white's side. When the only human seat is black it is
 flipped, so the side the operator actually plays is at the bottom; a hot-seat

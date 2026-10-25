@@ -197,19 +197,22 @@ def create_app(
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):
-        """Refuse requests from other machines unless explicitly allowed.
+        """Refuse requests that did not address this machine by a local name.
 
-        ``src.main`` already refuses to bind a non-loopback address unless
-        ``server.allow_remote`` is true, so this is defence in depth: it also
-        covers apps built with ``create_app`` directly (tests, ASGI servers) and
-        anything sitting in front of the socket.
+        ``src.main`` never binds a non-loopback address, so nothing on the
+        network can reach the socket in the first place. The one path left is
+        DNS rebinding: a page the browser already has open resolves a name it
+        controls to ``127.0.0.1`` and has the browser replay the requests,
+        which then arrive from loopback with a foreign ``Host`` header. Only
+        the header can tell those apart from the real UI - the peer address
+        cannot, which is why it is not what gets checked here.
         """
 
-        host = request.client.host if request.client else None
-        if config.server.allow_remote or is_local_host(host):
+        host = request.headers.get("host")
+        if _addressed_to_this_machine(host):
             return await call_next(request)
         LOGGER.warning(
-            "Rejected %s %s from %s: server.allow_remote is false",
+            "Rejected %s %s: Host %r is not a local name",
             request.method,
             request.url.path,
             host,
@@ -217,8 +220,8 @@ def create_app(
         return JSONResponse(
             {
                 "detail": (
-                    "This server only accepts requests from the local machine. "
-                    "Set server.allow_remote: true in config.yaml to allow remote clients."
+                    "This server only answers requests addressed to this "
+                    "machine (127.0.0.1 / localhost)."
                 )
             },
             status_code=403,
@@ -362,10 +365,12 @@ def create_app(
 
 
 def is_local_host(host: Optional[str]) -> bool:
-    """True for loopback clients (plus the in-process test client).
+    """True for loopback addresses (plus the in-process test client).
 
-    ``request.client.host`` is an IP for real sockets, but Starlette's
-    ``TestClient`` reports the literal string ``testclient``.
+    Used both for the ``--host`` a bind would use and for the name in a
+    ``Host`` header. The latter arrives as ``name`` or ``name:port``, so the
+    caller strips the port; ``request.client.host`` is an IP for real sockets,
+    but Starlette's ``TestClient`` reports the literal string ``testclient``.
     """
 
     if not host:
@@ -376,6 +381,23 @@ def is_local_host(host: Optional[str]) -> bool:
         return ipaddress.ip_address(host.split("%")[0]).is_loopback
     except ValueError:
         return False
+
+
+def _addressed_to_this_machine(host_header: Optional[str]) -> bool:
+    """True when a ``Host`` header names this machine and nothing else.
+
+    ``[::1]:8000`` and ``127.0.0.1:8000`` carry a port; a bare ``::1`` has
+    colons of its own and must not be split on them.
+    """
+
+    if not host_header:
+        return False
+    name = host_header.strip().lower()
+    if name.startswith("["):
+        name = name[1:].split("]", 1)[0]
+    elif name.count(":") == 1:
+        name = name.split(":", 1)[0]
+    return is_local_host(name)
 
 
 def _parse_side(value: Optional[str]) -> tuple[str, Optional[str]]:

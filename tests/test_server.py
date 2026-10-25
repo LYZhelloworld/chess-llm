@@ -8,7 +8,7 @@ from src.config import AppConfig
 from src.game.controller import GameController
 from src.game.state import GameState, PlayerSpec
 from src.game.storage import StoragePaths
-from src.ui.server import GameContext, is_local_host
+from src.ui.server import GameContext, _addressed_to_this_machine, is_local_host
 
 
 class ImmediateLoop:
@@ -264,3 +264,31 @@ def test_drive_stops_when_the_replacement_game_needs_no_llm(tmp_path):
 )
 def test_is_local_host(host, expected):
     assert is_local_host(host) is expected
+
+
+@pytest.mark.parametrize(
+    "header, expected",
+    [
+        ("127.0.0.1", True),
+        ("127.0.0.1:8000", True),
+        ("localhost:8000", True),
+        ("LOCALHOST:8000", True),
+        ("[::1]", True),
+        ("[::1]:8000", True),
+        ("127.0.0.1.nip.io", False),
+        ("attacker.example", False),
+        ("attacker.example:8000", False),
+        ("192.168.1.10:8000", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_a_host_header_counts_only_when_it_names_this_machine(header, expected):
+    """The port has to come off, and an IPv6 literal must not be split on ':'.
+
+    This is the DNS-rebinding guard: the request itself comes from loopback, so
+    the header is all that separates the real UI from a page that rebound a name
+    it controls to 127.0.0.1.
+    """
+
+    assert _addressed_to_this_machine(header) is expected

@@ -86,7 +86,6 @@ llm_profiles:
 draw:    {repetition_count: 3, no_progress_moves: 50, max_game_moves: 200}
 loop:    {max_tool_turns: 20, context_turns: 20}
 storage: {games_dir: games, logs_dir: logs, log_level: INFO}
-server:  {allow_remote: false}
 ```
 
 `api_key` holds the key itself and takes priority. If you prefer to keep secrets
@@ -102,12 +101,12 @@ with the history: `auto` (default) tries it and stops if the backend refuses,
 When you start a game in the UI, choose a profile per side from the dropdowns —
 there is no command-line equivalent anymore.
 
-`server.allow_remote` (default `false`) decides whether the HTTP API accepts
-requests from other machines. The API has no authentication and every LLM turn
-spends your credits, so the default is to listen on `127.0.0.1` only: passing a
-non-loopback `--host` while the flag is `false` is refused at startup instead of
-binding the port and answering `403`. Set it to `true` if you really want the
-network to reach it. Opening it up is your responsibility.
+The HTTP API is local-only, unconditionally. It has no authentication and every
+LLM turn spends your credits, so it listens on `127.0.0.1` and nothing else: a
+non-loopback `--host` is refused at startup instead of binding the port and
+answering `403` afterwards. Requests that reach it are still checked on the
+`Host` header, which is what stops a page in your browser from talking to it
+through DNS rebinding.
 
 ### 2. Environment variables (optional)
 

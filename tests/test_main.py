@@ -36,16 +36,15 @@ def test_parser_rejects_game_flags():
         build_parser().parse_args(["--headless"])
 
 
-def test_loopback_binds_are_always_allowed():
+def test_loopback_binds_are_allowed():
     for host in ("127.0.0.1", "localhost", "::1"):
-        assert bind_refusal(host, allow_remote=False) is None
+        assert bind_refusal(host) is None
 
 
-def test_public_bind_is_refused_unless_remote_access_is_opted_in():
-    for host in ("0.0.0.0", "192.168.1.10"):
-        message = bind_refusal(host, allow_remote=False)
+def test_every_public_bind_is_refused():
+    # No opt-out: the API has no authentication and every turn costs money, so
+    # there is no configuration that opens it up to the network.
+    for host in ("0.0.0.0", "192.168.1.10", "::", "example.com"):
+        message = bind_refusal(host)
         assert message is not None
         assert host in message
-        assert "allow_remote" in message
-
-    assert bind_refusal("0.0.0.0", allow_remote=True) is None

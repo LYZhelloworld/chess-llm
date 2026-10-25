@@ -30,28 +30,30 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_CONFIG_PATH),
         help="path to config.yaml (copied from config.example.yaml).",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="web server host")
+    parser.add_argument(
+        "--host", default="127.0.0.1", help="web server host (loopback only)"
+    )
     parser.add_argument("--port", type=int, default=8000, help="web server port")
     parser.add_argument("--log-level", default=None, help="DEBUG, INFO, WARNING or ERROR")
     return parser
 
 
-def bind_refusal(host: str, allow_remote: bool) -> str | None:
+def bind_refusal(host: str) -> str | None:
     """Return why ``host`` may not be bound, or ``None`` when it is acceptable.
 
-    The API has no authentication and every LLM turn spends real credits, so the
-    default is to listen on loopback only. Binding to ``0.0.0.0`` and rejecting
-    requests afterwards still leaves the port open to scanners and to anything
-    that can get past the middleware, so a non-loopback bind without an explicit
-    opt-in is refused up front instead of being answered with ``403`` later.
+    The API has no authentication and every LLM turn spends real credits, so it
+    listens on loopback only. There is deliberately no switch to open it up:
+    binding ``0.0.0.0`` and rejecting requests afterwards still leaves the port
+    visible to scanners, so a non-loopback host is refused before the socket
+    exists rather than answered with ``403`` later.
     """
 
-    if allow_remote or is_local_host(host):
+    if is_local_host(host):
         return None
     return (
-        f"Refusing to listen on {host}: this API has no authentication and every "
-        "LLM turn spends your credits. Keep the default --host 127.0.0.1, or set "
-        "server.allow_remote: true in config.yaml to expose it on the network."
+        f"Refusing to listen on {host}: this API has no authentication, every "
+        "LLM turn spends your credits, and it is meant to be used from this "
+        "machine only. Use the default --host 127.0.0.1."
     )
 
 
@@ -73,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Checked before logging is configured: a refused bind must be visible on the
     # terminal even when storage.log_to_console is false.
-    refusal = bind_refusal(args.host, config.server.allow_remote)
+    refusal = bind_refusal(args.host)
     if refusal:
         print(f"chess-llm: {refusal}", file=sys.stderr)
         return 2

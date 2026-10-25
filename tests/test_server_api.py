@@ -31,14 +31,15 @@ def make_config() -> AppConfig:
     return cfg
 
 
-def make_client(tmp_path, allow_remote: bool = False):
+def make_client(tmp_path):
     paths = StoragePaths(
         games_dir=tmp_path / "games", logs_dir=tmp_path / "logs"
     ).ensure()
     cfg = make_config()
-    cfg.server.allow_remote = allow_remote
     app = create_app(config=cfg, paths=paths)
-    return TestClient(app), paths
+    # The Host header is checked, so the tests have to address the server the
+    # way the browser does. TestClient's default base_url is "testserver".
+    return TestClient(app, base_url="http://127.0.0.1"), paths
 
 
 # ----------------------------------------------------------------- helpers
@@ -200,18 +201,27 @@ def test_resign_requires_a_running_game(tmp_path):
 
 
 # ----------------------------------------------------------- local-only access
-def test_remote_clients_are_refused_by_default(tmp_path):
-    client, _ = make_client(tmp_path)
-    remote = TestClient(client.app, client=("203.0.113.7", 51515))
+def test_a_request_addressed_to_another_name_is_refused(tmp_path):
+    """DNS rebinding: the request arrives from loopback but is not for us.
 
-    res = remote.get("/api/state")
+    A page the browser already has open can resolve a name it controls to
+    127.0.0.1 and have the browser replay its requests. The peer address is
+    loopback for those, so the Host header is the only thing that separates
+    them from the real UI - and the API has no authentication and spends the
+    operator's credits.
+    """
+
+    client, _ = make_client(tmp_path)
+
+    res = client.get("/api/state", headers={"host": "attacker.example"})
 
     assert res.status_code == 403
-    assert "local machine" in res.json()["detail"]
+    assert "this machine" in res.json()["detail"]
 
 
-def test_allow_remote_opens_the_api(tmp_path):
-    client, _ = make_client(tmp_path, allow_remote=True)
-    remote = TestClient(client.app, client=("203.0.113.7", 51515))
+def test_local_host_headers_are_served(tmp_path):
+    client, _ = make_client(tmp_path)
 
-    assert remote.get("/api/state").status_code == 200
+    for host in ("127.0.0.1:8000", "localhost:8000", "[::1]:8000"):
+        res = client.get("/api/state", headers={"host": host})
+        assert res.status_code == 200, host

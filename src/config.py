@@ -202,45 +202,12 @@ class StorageConfig:
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
-def _as_bool(value: Any) -> bool:
-    """Coerce ``true`` / ``"yes"`` / ``"off"`` / ... into a boolean."""
-
-    if isinstance(value, str):
-        text = value.strip().lower()
-        if text in ("on", "true", "yes", "1"):
-            return True
-        if text in ("off", "false", "no", "0", ""):
-            return False
-        return True
-    return bool(value)
-
-
-@dataclass
-class ServerConfig:
-    """HTTP access policy for the web UI."""
-
-    # Accept requests from machines other than this one. Off by default: the
-    # API has no authentication and every LLM turn spends the operator's credits.
-    allow_remote: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        return dict(self.__dict__)
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ServerConfig":
-        fields = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
-        if "allow_remote" in fields:
-            fields["allow_remote"] = _as_bool(fields["allow_remote"])
-        return cls(**fields)
-
-
 @dataclass
 class AppConfig:
     llm_profiles: Dict[str, LlmProfile] = field(default_factory=dict)
     draw: DrawConfig = field(default_factory=DrawConfig)
     loop: LoopConfig = field(default_factory=LoopConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
-    server: ServerConfig = field(default_factory=ServerConfig)
     seed: Optional[int] = None
 
     def profile(self, name: str) -> LlmProfile:
@@ -271,7 +238,6 @@ class AppConfig:
             "draw": self.draw.to_dict(),
             "loop": self.loop.to_dict(),
             "storage": self.storage.to_dict(),
-            "server": self.server.to_dict(),
             "seed": self.seed,
         }
 
@@ -325,7 +291,7 @@ def load_config(path: Optional[Path | str] = None, required: bool = True) -> App
         if not isinstance(data, dict):
             raise ConfigError(
                 f"{cfg_path}: the top level must be a mapping of sections "
-                f"(llm_profiles, draw, loop, storage, server), got "
+                f"(llm_profiles, draw, loop, storage), got "
                 f"{type(data).__name__}."
             )
     elif required:
@@ -351,7 +317,6 @@ def load_config(path: Optional[Path | str] = None, required: bool = True) -> App
         draw=DrawConfig.from_dict(_section(data, "draw", cfg_path)),
         loop=LoopConfig.from_dict(_section(data, "loop", cfg_path)),
         storage=StorageConfig.from_dict(_section(data, "storage", cfg_path)),
-        server=ServerConfig.from_dict(_section(data, "server", cfg_path)),
         seed=seed,
     )
 

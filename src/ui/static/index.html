@@ -192,10 +192,18 @@
   button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); }
   button.secondary { background: #fff; color: var(--text); }
   button.danger { background: var(--danger); border-color: var(--danger); }
+  /* Without this a disabled button keeps its accent fill and still looks
+     clickable - the only cue was the browser's greyed text on a coloured
+     background, which is easy to miss. */
+  button:disabled { opacity: .4; cursor: not-allowed; }
   input[type=text] { min-width: 5.625rem; }
   .hint { color: var(--muted); font-size: .75rem; }
   #banner { padding: .625rem 1rem; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: .75rem; font-size: .8125rem; }
   #banner.hidden { display: none; }
+  /* The banner takes ~2.5rem out of a page whose height is fixed to the
+     viewport. Take it back from the conversation rather than from the columns,
+     which would otherwise start scrolling inside themselves. */
+  #banner:not(.hidden) + .app { --conv-h: clamp(6rem, 18vh, 11rem); }
   .card-sub { margin-top: .875rem; border-top: 1px solid var(--border); padding-top: .625rem; }
   .card-sub h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 .25rem; }
   /* Short windows are the one case the rem scale cannot rescue: the right
@@ -274,7 +282,7 @@
         </div>
 
         <div class="row" style="margin-top:.75rem">
-          <button class="danger" id="resign">Resign (human side)</button>
+          <button class="danger" id="resign" title="Resign the game.">Resign</button>
         </div>
       </div>
       <div class="card moves-card">
@@ -467,16 +475,26 @@ function renderStatus() {
     document.getElementById("new-black").value = state.black.kind;
   }
 
+  // One fixed label: the button either works or it is greyed out. Why it is
+  // unavailable lives in the tooltip, so the label does not have to double as a
+  // status description ("Resign (no human seat)" read like an error message).
   const seats = humanSides();
   const resignBtn = document.getElementById("resign");
+  resignBtn.textContent = "Resign";
   if (!seats.length) {
     resignBtn.disabled = true;
-    resignBtn.textContent = "Resign (no human seat)";
+    resignBtn.title = "Both sides are models: they resign through their own tools.";
+  } else if (state.finished) {
+    resignBtn.disabled = true;
+    resignBtn.title = "The game is over.";
   } else {
-    resignBtn.disabled = state.finished;
-    resignBtn.textContent = seats.length === 2
-      ? `Resign (${state.turn}, to move)`
-      : `Resign (${seats[0]})`;
+    const side = humanSide();
+    resignBtn.disabled = false;
+    // Hot-seat: the click can only ever resign the side to move, because the
+    // page cannot tell the two players apart. Say so instead of surprising them.
+    resignBtn.title = seats.length === 2
+      ? `${side === "white" ? "White" : "Black"} to move - resigning ends the game for ${side}.`
+      : `You play ${side} - resigning ends the game.`;
   }
 }
 

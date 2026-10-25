@@ -50,3 +50,12 @@ def test_turn_prompt_lists_every_legal_move():
 
     for san in engine.legal_moves_san():
         assert san in text
+
+
+def test_turn_prompt_states_the_piece_values_once():
+    text = turn_prompt(ChessEngine(), "white")
+
+    # The label above the reading carries the weights; the reading itself must
+    # not repeat them, which it used to do in a trailing "Values: ..." sentence.
+    assert text.count("P=1") == 1
+    assert "Values:" not in text

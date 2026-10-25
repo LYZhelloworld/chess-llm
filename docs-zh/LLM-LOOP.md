@@ -33,7 +33,7 @@ ASCII board (rank 8 on top, file a on the left):
 r n b q k b n r
 ...
 
-Material balance (P=1, N=3, B=3, R=5, Q=9; king excluded): White 39 - Black 39 (material is level); you are level. Values: P=1 N=3 B=3 R=5 Q=9, king excluded.
+Material balance (P=1, N=3, B=3, R=5, Q=9; king excluded): White 39 - Black 39 (material is level); you are level.
 
 Legal moves (SAN - `make_move` accepts exactly one of these):
 a3

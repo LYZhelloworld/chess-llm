@@ -85,10 +85,6 @@ FALLBACK_NOTICE = (
     "for you: {move}."
 )
 
-GAME_OVER_NOTICE = "The game is over: {detail}"
-
-HUMAN_MOVE_NOTICE = "The opponent played {move}."
-
 
 def system_prompt(side: str) -> str:
     return SYSTEM_PROMPT.format(side=side)

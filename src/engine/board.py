@@ -131,10 +131,9 @@ class ChessEngine:
                 else f"you are behind by {-diff} point(s)"
             )
 
-        return (
-            f"White {counts['white']} - Black {counts['black']} ({verdict}); {you}. "
-            "Values: P=1 N=3 B=3 R=5 Q=9, king excluded."
-        )
+        # Only the reading: the piece weights belong to the label the caller
+        # prints around it (see ``prompts.TURN_PROMPT``), not to every answer.
+        return f"White {counts['white']} - Black {counts['black']} ({verdict}); {you}."
 
     def san_of(self, move: chess.Move) -> str:
         return self.board.san(move)

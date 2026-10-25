@@ -661,8 +661,11 @@ function renderChat() {
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-// Append a streamed delta to the live bubble (no full refresh - the partial
-// text is the only thing that changed).
+// Append a streamed delta to the live bubble. No DOM work happens here: the two
+// strings grow and a paint is scheduled. A fast backend delivers hundreds of
+// deltas per second, and one paint re-parses the whole chain of thought and
+// rewrites the bubble - doing that per delta made the page fall behind the
+// stream, and the backlog then arrived in a burst that read as a freeze.
 function accumulateDelta(payload) {
   if (!liveDelta || liveDelta.side !== payload.side) {
     liveDelta = { side: payload.side, content: "", reasoning: "" };
@@ -679,20 +682,99 @@ function accumulateDelta(payload) {
     if (livePendingSep.reasoning) { liveDelta.reasoning += STREAM_SEP; livePendingSep.reasoning = false; }
     liveDelta.reasoning += payload.reasoning;
   }
-  updateLiveBubble();
+  scheduleLivePaint();
+}
+
+// At most one paint per LIVE_PAINT_MS, however many deltas arrived, and the
+// wait is spent in requestAnimationFrame rather than in a timer. A 20 ms timer
+// does not deliver 20 ms: measured on Windows the gap came out at 27 ms median,
+// 32 ms at the 90th percentile, because a timer cannot resolve finer than the
+// scheduler's clock. Frames are already aligned to the display, so a 16 ms
+// budget means one paint per frame on a 60 Hz screen and one every two or three
+// frames on faster ones - and a hidden tab stops painting on its own.
+const LIVE_PAINT_MS = 16;
+let livePaintFrame = null;
+let livePaintAt = 0;
+
+function scheduleLivePaint() {
+  if (livePaintFrame !== null) return;
+  const tick = () => {
+    const now = performance.now();
+    if (now - livePaintAt < LIVE_PAINT_MS) {
+      livePaintFrame = requestAnimationFrame(tick);
+      return;
+    }
+    livePaintFrame = null;
+    livePaintAt = now;
+    updateLiveBubble();
+  };
+  livePaintFrame = requestAnimationFrame(tick);
+}
+
+// A dropped bubble (turn over, game replaced) must not be painted afterwards.
+function cancelLivePaint() {
+  if (livePaintFrame === null) return;
+  cancelAnimationFrame(livePaintFrame);
+  livePaintFrame = null;
+}
+
+// The live bubble's skeleton, built once per bubble. renderChat() replaces the
+// bubble's innerHTML wholesale, which detaches these nodes - liveScaffold()
+// notices and rebuilds instead of writing into orphans.
+let liveBubbleUi = null;
+// The two strings already painted, so an unchanged stream costs no DOM work.
+let livePainted = { reasoning: null, content: null };
+
+function liveScaffold() {
+  if (liveBubbleUi && liveBubbleUi.role.parentNode === liveBubbleEl) return liveBubbleUi;
+  liveBubbleEl.innerHTML =
+    '<div class="role"></div>' +
+    '<details class="cot-box"><summary>chain of thought</summary><div class="md cot"></div></details>' +
+    '<div class="md body"></div>';
+  liveBubbleUi = {
+    role: liveBubbleEl.querySelector(".role"),
+    cot: liveBubbleEl.querySelector("details.cot-box"),
+    cotBody: liveBubbleEl.querySelector(".cot"),
+    body: liveBubbleEl.querySelector(".body"),
+  };
+  livePainted = { reasoning: null, content: null };
+  return liveBubbleUi;
 }
 
 // Update only the live bubble in place so frequent deltas never rebuild the
 // whole chat (which would reset any history the user has expanded).
 function updateLiveBubble() {
+  if (!liveDelta) return;
   if (!liveBubbleEl) { renderChat(); return; }
-  const body = liveDelta.content
-    ? `<div class="md">${renderMarkdown(liveDelta.content)}</div>`
-    : "";
-  // Expanded while still thinking, collapsed once spoken content streams in.
-  const cot = cotBlock(liveDelta.reasoning, !liveDelta.content);
-  liveBubbleEl.innerHTML = `<div class="role">${liveDelta.side} · writing…</div>${cot}${body}`;
-  chatEl.scrollTop = chatEl.scrollHeight;
+
+  // Read the scroll position before touching the DOM: once the content grows,
+  // "was the reader at the bottom?" can no longer be answered.
+  const pinned = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 40;
+  const ui = liveScaffold();
+  ui.role.textContent = `${liveDelta.side} · writing…`;
+
+  const reasoning = liveDelta.reasoning;
+  const content = liveDelta.content;
+  if (livePainted.reasoning !== reasoning) {
+    ui.cotBody.innerHTML = renderMarkdown(reasoning);
+    ui.cot.style.display = reasoning ? "" : "none";
+    livePainted.reasoning = reasoning;
+  }
+  if (livePainted.content !== content) {
+    ui.body.innerHTML = content ? renderMarkdown(content) : "";
+    livePainted.content = content;
+  }
+
+  // Expanded while still thinking, collapsed once spoken content streams in -
+  // but only when that flips. Assigning `open` on every paint would undo a
+  // reader who collapsed the box to watch the moves instead.
+  const wantOpen = !content;
+  if (ui.cot.dataset.openFor !== String(wantOpen)) {
+    ui.cot.open = wantOpen;
+    ui.cot.dataset.openFor = String(wantOpen);
+  }
+
+  if (pinned) chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 function renderBanner() {
@@ -738,6 +820,7 @@ async function refresh() {
     return;
   }
   state = data;
+  cancelLivePaint();
   liveDelta = null;  // rebuild chat from the authoritative conversation
   render();
 }
@@ -904,6 +987,7 @@ function connect() {
       // bubble or selection. The server also stops forwarding events from a
       // game that has been replaced, so nothing else from it can arrive.
       liveDelta = null;
+      cancelLivePaint();
       livePendingSep = { content: false, reasoning: false };
       liveBubbleEl = null;
       selected = null;
@@ -921,6 +1005,7 @@ function connect() {
     // one's thinking.
     if (payload.type === "turn_start") {
       liveDelta = null;
+      cancelLivePaint();
       livePendingSep = { content: false, reasoning: false };
       liveBubbleEl = null;
       return;

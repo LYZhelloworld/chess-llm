@@ -103,8 +103,12 @@ Agent 循环外没有任何模块 import 提示词模块。
 - `POST /api/load` - `{ "game_id": "game_20260925_195646" }`。
 - `GET /api/games` - 已保存的对局 id。
 - `GET /api/events` - Server-Sent Events（`turn_start`、`tool_call`、
-  `tool_result`、`llm_message`、`move`、`game_over` 等）。UI 每收到一个事件就
-  重新拉取状态。
+  `tool_result`、`llm_message`、`llm_delta`、`move`、`game_over` 等）。流式事件
+  （`llm_delta`）就地更新气泡，其余事件才重新拉取状态。delta 按 token 到达，远快于
+  页面能有效重绘的速度，所以浏览器会合并它们，活动气泡在 `requestAnimationFrame`
+  回调里按 `LIVE_PAINT_MS`（16 ms）最多重绘一次——60 Hz 屏幕上等于每帧一次。
+  起作用的是这个上限：重绘频率因此与后端吐 token 的快慢无关。用定时器不行：
+  `setTimeout(20)` 在 Windows 上实测中位数为 27 ms，而帧本来就与显示器对齐。
 
 LLM 回合在 worker 线程里跑（`asyncio.to_thread`），这样事件循环仍能响应请求；
 并用一把锁保证同一时刻只有一个回合在跑。由于一个回合可能比它所属的对局活得更久，

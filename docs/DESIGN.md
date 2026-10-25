@@ -117,8 +117,12 @@ module except the agent loop.
   `tool_result`, `llm_message`, `llm_delta`, `move`, `game_over`, ...).
   Streaming events (`llm_delta`) update the UI in place; other events trigger a
   state refresh. Deltas arrive per token, far faster than a page can usefully
-  repaint, so the browser merges them and paints the live bubble at most ten
-  times a second (`LIVE_PAINT_MS` in `index.html`).
+  repaint, so the browser merges them and paints the live bubble at most once
+  per `LIVE_PAINT_MS` (16 ms) from a `requestAnimationFrame` callback - a paint
+  per frame on a 60 Hz display. The ceiling is what matters: paint rate is then
+  independent of how fast the backend streams. A timer would not do: 20 ms of
+  `setTimeout` measures 27 ms median on Windows, and frames are aligned to the
+  display anyway.
 
 `--port` is the only part of the bind the command line controls; the address is
 fixed to `127.0.0.1`. The `local_only` middleware (`src/ui/server.py`)

@@ -65,7 +65,6 @@ loop:
   max_tool_turns: 20
   # How many conversation turns are sent to the model (history is fully stored).
   context_turns: 20
-  fallback_random_move: true
 
 storage:
   games_dir: "games"

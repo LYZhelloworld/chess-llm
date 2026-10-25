@@ -1,4 +1,5 @@
 import asyncio
+from types import SimpleNamespace
 
 import chess
 
@@ -94,5 +95,74 @@ def test_set_controller_keeps_events_flowing(tmp_path):
 
         ctx.controller.submit_human_move("Nf3")
         assert next_of_type(queue, "move")["move"] == "Nf3"
+
+    asyncio.run(scenario())
+
+
+class StubTurn:
+    """Minimal stand-in for a controller: only what ``_drive`` touches."""
+
+    def __init__(self, kind="llm", stalled=False, stop_after=None):
+        self.finished = False
+        self.current_player = SimpleNamespace(kind=kind)
+        self.stalled = stalled
+        self.stop_after = stop_after
+        self.turns = 0
+        # _drive() compares the ply before and after a turn to notice a turn
+        # that changed nothing.
+        self.engine = SimpleNamespace(ply=0)
+
+    @property
+    def side_to_move(self):
+        return "white"
+
+    def set_emit(self, emit):
+        pass
+
+    def close(self):
+        pass
+
+    def run_llm_turn(self):
+        self.turns += 1
+        if not self.stalled:
+            self.engine.ply += 1
+        if self.stop_after is not None and self.turns >= self.stop_after:
+            self.finished = True
+        return {"status": "moved"}
+
+
+def test_drive_keeps_playing_while_turns_change_the_board(tmp_path):
+    """LLM vs LLM: every turn moves, so the driver hands over to the other side."""
+
+    async def scenario():
+        paths = StoragePaths(games_dir=tmp_path / "games", logs_dir=tmp_path / "logs")
+        ctx = GameContext(None, AppConfig(), paths)
+        both = StubTurn(stop_after=3)
+        ctx.set_controller(both)
+        ctx.schedule_turn()
+        await ctx.task
+
+        assert both.turns == 3
+
+    asyncio.run(scenario())
+
+
+def test_drive_stops_on_a_turn_that_changes_nothing(tmp_path):
+    """A turn with no move and no result must not be retried.
+
+    The side to move is unchanged, so the loop would start the same turn again
+    immediately - forever, if the failure repeats (a backend that keeps
+    erroring). That is the difference between one wasted call and a runaway.
+    """
+
+    async def scenario():
+        paths = StoragePaths(games_dir=tmp_path / "games", logs_dir=tmp_path / "logs")
+        ctx = GameContext(None, AppConfig(), paths)
+        stuck = StubTurn(stalled=True)
+        ctx.set_controller(stuck)
+        ctx.schedule_turn()
+        await ctx.task
+
+        assert stuck.turns == 1
 
     asyncio.run(scenario())

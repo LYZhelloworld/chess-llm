@@ -98,7 +98,18 @@ class GameContext:
                     break
                 if controller.current_player.kind != LLM:
                     break
+                ply_before = controller.engine.ply
                 await asyncio.to_thread(controller.run_llm_turn)
+                if controller.engine.ply == ply_before and not controller.finished:
+                    # A turn that neither moved nor ended the game leaves the
+                    # same side to move, so the loop below would start it again
+                    # immediately - forever, if the failure repeats (a broken
+                    # profile, a backend that keeps erroring). Stop instead.
+                    LOGGER.error(
+                        "Turn for %s neither moved nor ended the game; stopping the driver.",
+                        controller.side_to_move,
+                    )
+                    break
                 if controller.current_player.kind == LLM and not controller.finished:
                     # LLM vs LLM: keep going, but yield so events can flush.
                     await asyncio.sleep(0)

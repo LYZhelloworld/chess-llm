@@ -472,8 +472,8 @@ function renderStatus() {
   // Keep the "new game" dropdowns in sync with the game that is loaded (but not
   // while we are in the empty no-game state, so the user's picks survive).
   if (state.game_id) {
-    document.getElementById("new-white").value = state.white.kind;
-    document.getElementById("new-black").value = state.black.kind;
+    selectSeat(document.getElementById("new-white"), seatValue(state.white));
+    selectSeat(document.getElementById("new-black"), seatValue(state.black));
   }
 
   // One fixed label: the button either works or it is greyed out. Why it is
@@ -785,10 +785,38 @@ async function loadProfiles() {
   fillSideSelect(document.getElementById("load-black"), true);
 }
 
+// How a seat is spelled as an option value: "human" or "llm:<profile>".
+// `kind` alone is not enough - it would be "llm" for every model, which matches
+// no option and leaves the select showing whatever it showed before.
+function seatValue(spec) {
+  return spec.kind === "llm" ? `llm:${spec.profile || "default"}` : "human";
+}
+
+// Set a side select to a stored seat, adding the option when the list does not
+// contain it. Two ways that happens: the profile was removed from config.yaml
+// after the game was saved, or /api/profiles failed and `profiles` is empty.
+// Assigning a value with no matching option does nothing at all, so the select
+// would keep displaying its first entry - "human" - for a seat a model is
+// playing. The extra option admits it cannot name the side instead of lying.
+function selectSeat(select, value) {
+  if (!Array.from(select.options).some(o => o.value === value)) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = `${value.replace(":", ": ")} (unavailable)`;
+    opt.style.color = "var(--danger)";
+    select.appendChild(opt);
+  }
+  select.value = value;
+}
+
 // Build the options for one side: "human", then "llm:<name>" for every profile.
 // When keepStored is true a leading "(keep stored)" option (value "") is added,
 // used by the load-override selectors.
 function fillSideSelect(select, keepStored) {
+  // Replacing innerHTML resets the control to its first option. Keep whatever
+  // it was showing when that value survives the rebuild - otherwise every
+  // profile reload silently turns "llm: local" back into "human".
+  const previous = select.value;
   let html = keepStored ? '<option value="">(keep stored)</option>' : "";
   html += '<option value="human">human</option>';
   for (const p of profiles) {
@@ -797,6 +825,9 @@ function fillSideSelect(select, keepStored) {
     html += `<option value="llm:${p.name}"${color}>llm: ${p.name}${warn}</option>`;
   }
   select.innerHTML = html;
+  if (previous && Array.from(select.options).some(o => o.value === previous)) {
+    select.value = previous;
+  }
 }
 
 document.getElementById("new-game").addEventListener("click", async () => {
@@ -932,9 +963,13 @@ function connect() {
 }
 
 (async function init() {
+  // Profiles first: renderStatus() puts the loaded game's seats into the "new
+  // game" dropdowns during that first refresh, and it can only pick an option
+  // that already exists. With the other order the selects show "human" for a
+  // moment, until loadProfiles() rebuilds them.
+  await loadProfiles();
   await refresh();
   await loadSavedGames();
-  await loadProfiles();
   connect();
   setInterval(loadSavedGames, 30000);
   // Safety net: while an LLM is to move, poll as well as listen, so the board

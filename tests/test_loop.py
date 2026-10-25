@@ -2,7 +2,7 @@ import random
 
 from src.agent.llm_client import AssistantMessage, ToolCall
 from src.agent.loop import ChatMemory, run_llm_turn
-from src.config import AppConfig
+from src.config import AppConfig, LoopConfig
 from src.engine.board import ChessEngine
 
 
@@ -317,3 +317,31 @@ def test_reasoning_off_never_sends_it_and_does_not_retry():
     assert outcome.move_san == "e4"
     assert len(client.requests) == 1
     assert not any("reasoning" in m for m in client.requests[0])
+
+
+def test_a_stale_fallback_switch_cannot_starve_a_turn():
+    """`loop.fallback_random_move` is gone, and an old config file cannot bring
+    it back.
+
+    The switch used to be able to end a turn with no move at all, which left the
+    same side to move and made the driver retry the turn immediately. A config
+    that still says `false` is silently ignored now, because `from_dict` drops
+    keys the dataclass no longer has.
+    """
+
+    assert "fallback_random_move" not in LoopConfig.__dataclass_fields__
+
+    engine = ChessEngine()
+    memory = ChatMemory()
+    config = AppConfig()
+    config.loop = LoopConfig.from_dict(
+        {"max_tool_turns": 2, "fallback_random_move": False}
+    )
+    client = ScriptedClient(text_only("thinking"), text_only("still thinking"))
+
+    outcome = run_llm_turn(client, engine, "white", memory, config, rng=random.Random(0))
+
+    assert outcome.error is None
+    assert outcome.fallback_random is True
+    assert outcome.move_san is not None
+    assert engine.ply == 1

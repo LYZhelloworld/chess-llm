@@ -202,7 +202,7 @@ def run_llm_turn(
                 LOGGER.error("LLM turn aborted after backend failure: %s", exc)
                 outcome.error = str(exc)
                 emit({"type": "llm_error", "side": side, "message": str(exc)})
-                return _fallback(engine, side, memory, outcome, config, emit, rng)
+                return _fallback(engine, side, memory, outcome, emit, rng)
 
         assistant_message = response.to_message()
         memory.add(assistant_message)
@@ -243,7 +243,7 @@ def run_llm_turn(
         side,
         config.loop.max_tool_turns,
     )
-    return _fallback(engine, side, memory, outcome, config, emit, rng)
+    return _fallback(engine, side, memory, outcome, emit, rng)
 
 
 def _run_tool(
@@ -289,18 +289,23 @@ def _fallback(
     side: str,
     memory: ChatMemory,
     outcome: TurnOutcome,
-    config: AppConfig,
     emit: EmitFn,
     rng: random.Random,
 ) -> TurnOutcome:
+    """Play a random legal move so a turn always changes the board.
+
+    There is deliberately no switch to turn this off. A turn that ends without
+    a move leaves the same side to move, and the driver starts the next turn
+    immediately - which turns a model that only talks (or a backend that keeps
+    failing) into an endless retry loop that spends the user's credits. An
+    agent that wants out of a position can still resign through its own
+    ``resign`` tool; the fallback only guarantees the board moves on.
+    """
+
     legal = engine.legal_moves_san()
     if not legal:
         outcome.resigned = True
         outcome.resign_reason = "no legal move available"
-        return outcome
-
-    if not config.loop.fallback_random_move:
-        outcome.error = outcome.error or "no move produced and fallback disabled"
         return outcome
 
     chosen = rng.choice(legal)

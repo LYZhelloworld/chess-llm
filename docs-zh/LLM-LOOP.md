@@ -73,9 +73,9 @@ for exchange in 1 .. loop.max_tool_turns（默认 20）:
 
 1. `make_move` 成功 -> 这一着由控制器落定。
 2. `resign` -> 对局以认输结果结束。
-3. 交互预算耗尽 -> 为该 Agent **随机走一步合法着法**
-   （`loop.fallback_random_move`），记为 `[random fallback]`，并追加一条 user
-   消息说明发生了什么，保证对话记录连贯。
+3. 交互预算耗尽 -> 为该 Agent **随机走一步合法着法**，记为 `[random fallback]`，
+   并追加一条 user 消息说明发生了什么，保证对话记录连贯。这一步不可配置：没有它，
+   这一轮就不会改变棋盘，驱动层会立刻重跑同一方，变成无限重试。
 4. 重试后后端仍失败 -> 同样的随机走子兜底，错误记录在 `TurnOutcome.error` 里。
 
 ## 3. 上下文窗口

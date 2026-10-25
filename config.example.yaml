@@ -61,11 +61,12 @@ draw:
   stalemate: true
 
 loop:
-  # LLM exchanges allowed per turn before a random legal move is played.
+  # LLM exchanges allowed per turn before a random legal move is played. The
+  # random move is not optional: a turn that ends without moving would leave
+  # the same side to move and the driver would retry it forever.
   max_tool_turns: 20
   # How many conversation turns are sent to the model (history is fully stored).
   context_turns: 20
-  fallback_random_move: true
 
 storage:
   games_dir: "games"

@@ -170,7 +170,6 @@ class LoopConfig:
 
     max_tool_turns: int = 20
     context_turns: int = 20
-    fallback_random_move: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
         return dict(self.__dict__)

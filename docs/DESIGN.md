@@ -116,7 +116,9 @@ module except the agent loop.
 - `GET /api/events` - server-sent events (`turn_start`, `tool_call`,
   `tool_result`, `llm_message`, `llm_delta`, `move`, `game_over`, ...).
   Streaming events (`llm_delta`) update the UI in place; other events trigger a
-  state refresh.
+  state refresh. Deltas arrive per token, far faster than a page can usefully
+  repaint, so the browser merges them and paints the live bubble at most ten
+  times a second (`LIVE_PAINT_MS` in `index.html`).
 
 `--port` is the only part of the bind the command line controls; the address is
 fixed to `127.0.0.1`. The `local_only` middleware (`src/ui/server.py`)

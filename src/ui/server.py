@@ -365,17 +365,15 @@ def create_app(
 
 
 def is_local_host(host: Optional[str]) -> bool:
-    """True for loopback addresses (plus the in-process test client).
+    """True for loopback addresses and the name ``localhost``.
 
-    Used both for the ``--host`` a bind would use and for the name in a
-    ``Host`` header. The latter arrives as ``name`` or ``name:port``, so the
-    caller strips the port; ``request.client.host`` is an IP for real sockets,
-    but Starlette's ``TestClient`` reports the literal string ``testclient``.
+    Only used to read the name in a ``Host`` header, which arrives as ``name``
+    or ``name:port`` - the caller strips the port first.
     """
 
     if not host:
         return False
-    if host in ("localhost", "testclient"):
+    if host == "localhost":
         return True
     try:
         return ipaddress.ip_address(host.split("%")[0]).is_loopback

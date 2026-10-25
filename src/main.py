@@ -15,7 +15,7 @@ from pathlib import Path
 
 from src.config import DEFAULT_CONFIG_PATH, AppConfig, ConfigError, load_config
 from src.game.storage import StoragePaths, setup_logging
-from src.ui.server import create_app, is_local_host
+from src.ui.server import create_app
 
 LOGGER = logging.getLogger("src.main")
 
@@ -30,31 +30,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_CONFIG_PATH),
         help="path to config.yaml (copied from config.example.yaml).",
     )
-    parser.add_argument(
-        "--host", default="127.0.0.1", help="web server host (loopback only)"
-    )
     parser.add_argument("--port", type=int, default=8000, help="web server port")
     parser.add_argument("--log-level", default=None, help="DEBUG, INFO, WARNING or ERROR")
     return parser
 
 
-def bind_refusal(host: str) -> str | None:
-    """Return why ``host`` may not be bound, or ``None`` when it is acceptable.
+BIND_HOST = "127.0.0.1"
+"""The only address the web UI listens on.
 
-    The API has no authentication and every LLM turn spends real credits, so it
-    listens on loopback only. There is deliberately no switch to open it up:
-    binding ``0.0.0.0`` and rejecting requests afterwards still leaves the port
-    visible to scanners, so a non-loopback host is refused before the socket
-    exists rather than answered with ``403`` later.
-    """
-
-    if is_local_host(host):
-        return None
-    return (
-        f"Refusing to listen on {host}: this API has no authentication, every "
-        "LLM turn spends your credits, and it is meant to be used from this "
-        "machine only. Use the default --host 127.0.0.1."
-    )
+There is no ``--host`` flag and no config key for it. The API has no
+authentication and every LLM turn spends the operator's credits, so it is meant
+to be reached from this machine and nothing else. Binding a public address and
+rejecting requests afterwards would still leave the port visible to scanners,
+and a flag to do so would only be a trap.
+"""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,13 +62,6 @@ def main(argv: list[str] | None = None) -> int:
     if args.log_level:
         config.storage.log_level = args.log_level
 
-    # Checked before logging is configured: a refused bind must be visible on the
-    # terminal even when storage.log_to_console is false.
-    refusal = bind_refusal(args.host)
-    if refusal:
-        print(f"chess-llm: {refusal}", file=sys.stderr)
-        return 2
-
     paths = StoragePaths.from_config(config.storage)
     paths.ensure()
     # "server" is a placeholder id for the boot-time log file; each game resets
@@ -94,9 +76,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     app = create_app(config=config, paths=paths)
-    print(f"chess-llm web UI: http://{args.host}:{args.port}")
+    print(f"chess-llm web UI: http://{BIND_HOST}:{args.port}")
     print("No game is running yet - create a new game or load a saved one in the browser.")
-    uvicorn.run(app, host=args.host, port=args.port, log_config=None)
+    uvicorn.run(app, host=BIND_HOST, port=args.port, log_config=None)
     return 0
 
 

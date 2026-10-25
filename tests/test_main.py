@@ -1,50 +1,49 @@
 """CLI argument parsing in ``src.main``.
 
-The command line only carries what the web server needs (config path, host,
-port, log level). Game setup - sides, profiles - happens in the browser, so the
-old ``--mode`` / ``--white`` / ``--headless`` flags are gone.
+The command line only carries what the web server needs (config path, port, log
+level). Game setup - sides, profiles - happens in the browser, so the old
+``--mode`` / ``--white`` / ``--headless`` flags are gone. ``--host`` went the
+same way: the server only ever listens on loopback, so the address is not a
+choice the operator should be making.
 """
+
+import ipaddress
 
 import pytest
 
-from src.main import bind_refusal, build_parser
+from src.main import BIND_HOST, build_parser
 
 
 def test_parser_defaults_are_server_only():
     args = build_parser().parse_args([])
     assert args.config.endswith("config.yaml")
-    assert args.host == "127.0.0.1"
     assert args.port == 8000
     assert args.log_level is None
+    assert not hasattr(args, "host")
 
 
 def test_parser_accepts_overrides():
     args = build_parser().parse_args(
-        ["--config", "x.yaml", "--host", "0.0.0.0", "--port", "9000", "--log-level", "DEBUG"]
+        ["--config", "x.yaml", "--port", "9000", "--log-level", "DEBUG"]
     )
     assert args.config == "x.yaml"
-    assert args.host == "0.0.0.0"
     assert args.port == 9000
     assert args.log_level == "DEBUG"
 
 
-def test_parser_rejects_game_flags():
-    # The game is configured in the UI now; launch-time game flags are removed.
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["--mode", "llm-vs-llm"])
-    with pytest.raises(SystemExit):
-        build_parser().parse_args(["--headless"])
+def test_parser_rejects_removed_flags():
+    # The game is configured in the UI now, and the bind address is fixed.
+    for flag in (["--host", "0.0.0.0"], ["--mode", "llm-vs-llm"], ["--headless"]):
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(flag)
 
 
-def test_loopback_binds_are_allowed():
-    for host in ("127.0.0.1", "localhost", "::1"):
-        assert bind_refusal(host) is None
+def test_the_bind_address_is_loopback():
+    """Pinned so a future change has to argue with this test first.
 
+    The API has no authentication and every LLM turn spends the operator's
+    credits. Binding a public address and rejecting requests afterwards still
+    advertises the port to scanners, which is why there is no flag for it.
+    """
 
-def test_every_public_bind_is_refused():
-    # No opt-out: the API has no authentication and every turn costs money, so
-    # there is no configuration that opens it up to the network.
-    for host in ("0.0.0.0", "192.168.1.10", "::", "example.com"):
-        message = bind_refusal(host)
-        assert message is not None
-        assert host in message
+    assert ipaddress.ip_address(BIND_HOST).is_loopback

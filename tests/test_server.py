@@ -254,7 +254,7 @@ def test_drive_stops_when_the_replacement_game_needs_no_llm(tmp_path):
         ("::1", True),
         ("::1%lo0", True),
         ("localhost", True),
-        ("testclient", True),
+        ("testclient", False),
         ("10.0.0.5", False),
         ("203.0.113.7", False),
         ("", False),

@@ -117,11 +117,15 @@
   .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
   .side .card { margin-bottom: 0; }
   .moves-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .moves-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  /* `overscroll-behavior: contain` is what keeps the page still while the
+     inner list scrolls: without it, once the list hits its end the wheel keeps
+     going and chains to the page, which is the "the whole page moves when I
+     scroll the chat" bug that the old `overflow: hidden` was working around. */
+  .moves-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
   .chat-head h2 { margin: 0 0 10px; }
   .toggle { font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
-  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; font-size: 13px; }
+  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: 13px; }
   .msg { border-left: 3px solid var(--border); padding: 6px 10px; margin-bottom: 8px; word-break: break-word; }
   .msg.user { border-left-color: #9aa3b2; color: var(--muted); }
   .msg.assistant { border-left-color: var(--accent); background: #fbfcfe; }

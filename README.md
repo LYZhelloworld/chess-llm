@@ -61,7 +61,7 @@ chosen in the browser.
 | Flag | Meaning |
 | --- | --- |
 | `--config` | path to `config.yaml` (copied from `config.example.yaml`) |
-| `--host` / `--port` | web server binding (default 127.0.0.1:8000) |
+| `--port` | web server port (default 8000; the address is always 127.0.0.1) |
 | `--log-level` | DEBUG / INFO / WARNING / ERROR |
 
 ## Configuration
@@ -100,6 +100,12 @@ with the history: `auto` (default) tries it and stops if the backend refuses,
 
 When you start a game in the UI, choose a profile per side from the dropdowns —
 there is no command-line equivalent anymore.
+
+The HTTP API is local-only, unconditionally. It has no authentication and every
+LLM turn spends your credits, so it listens on `127.0.0.1` and nothing else -
+there is no `--host` flag and no config key to change that. Requests that reach
+it are still checked on the `Host` header, which is what stops a page in your
+browser from talking to it through DNS rebinding.
 
 ### 2. Environment variables (optional)
 

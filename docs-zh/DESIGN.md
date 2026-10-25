@@ -85,6 +85,11 @@ Agent 循环外没有任何模块 import 提示词模块。
   即结束回合。
 - **失败绝不致命。** 工具报错会被分类后交回模型；后端故障则退化为随机走一步合法
   着法（带种子，便于复现），而不是让对局崩掉。
+- **HTTP API 只接受本机请求。** 服务只对 localhost 开放，通过网页版 UI 操作。
+- **通过 API 认输是人的操作。** `POST /api/resign` 只接受人类座位（API 调用方不能替
+  模型认输），热座模式下只有当前行棋方可以；这条规则由控制器执行，而不只靠浏览器。
+  模型自己认输走的是它自己的 `resign` 工具：该调用结束本回合，随后由控制器按这一回合
+  的结果结算。
 
 ## 5. Web 界面
 
@@ -92,7 +97,8 @@ Agent 循环外没有任何模块 import 提示词模块。
 - `GET /api/state` - 完整快照：FEN、ASCII、合法着法、着法列表、双方对话历史、
   界面展示用的合并 `conversation`、结果。
 - `POST /api/move` - `{ "move": "Nf3" }`（SAN 或 UCI）。
-- `POST /api/resign` - `{ "side": "white" }`。
+- `POST /api/resign` - `{ "side": "white", "reason": "..." }`（reason 可选）。
+  除非该座位是人类（热座模式下还必须是当前行棋方），否则返回 `400`。
 - `POST /api/new` - 开新局，逐边选择 human/llm。
 - `POST /api/load` - `{ "game_id": "game_20260925_195646" }`。
 - `GET /api/games` - 已保存的对局 id。
@@ -101,14 +107,25 @@ Agent 循环外没有任何模块 import 提示词模块。
   重新拉取状态。
 
 LLM 回合在 worker 线程里跑（`asyncio.to_thread`），这样事件循环仍能响应请求；
-并用一把锁保证同一时刻只有一个回合在跑。
+并用一把锁保证同一时刻只有一个回合在跑。由于一个回合可能比它所属的对局活得更久，
+每个控制器的事件都会经过一层守卫：一旦有新对局顶替它，它的事件就会被丢弃。
+
+命令行只控制 `--port`，监听地址固定为 `127.0.0.1`。`local_only` 中间件
+（`src/ui/server.py`）另外会拒绝 `Host` 头不是本机名字的请求，因此直接用
+`create_app` 组装的场景也在覆盖范围内。
+
+棋盘默认以白方视角绘制。当唯一的人类座位是黑方时会自动翻转，让操作者实际执的一方
+在下方；热座模式因为两人共用一块屏幕，仍然保持白方在下。
 
 ## 6. 配置
 
 `config.yaml` 保存 LLM profile（base URL、`api_key`、`api_key_env` 兜底、模型、
-temperature、超时、重试、以及 `reasoning` 模式与 `stream` 模式）、和棋阈值、循环上限与存储目录。仓库
-只提供 `config.example.yaml`，复制为 `config.yaml` 即可使用。`config.yaml` 被 git 忽略，
-因为里面有 API 密钥。
+temperature、超时、重试、以及 `reasoning` 模式与 `stream` 模式）、和棋阈值、循环上限、
+存储目录与 `server` 访问策略。仓库只提供 `config.example.yaml`，复制为 `config.yaml`
+即可使用。`config.yaml` 被 git 忽略，因为里面有 API 密钥。
+
+各配置段在加载时都会校验：结构写错（例如把 `llm_profiles` 写成字符串而不是映射）会抛出
+指明出错键名的 `ConfigError`，而不是等到后面才冒出一个 `AttributeError`。
 
 服务端**没有** `config.yaml` 也能启动：你可以直接开起来、不花 token 玩
 human vs human。只有在开一个**带 LLM 的一方**的对局时才需要 profile——你在网页

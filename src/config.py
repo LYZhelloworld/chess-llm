@@ -2,8 +2,13 @@
 
 Configuration is loaded from ``config.yaml`` and then refined by environment
 variables and command line arguments. ``config.yaml`` is not shipped with the
-repository: copy ``config.example.yaml`` to ``config.yaml`` first, otherwise
-the application refuses to start.
+repository: copy ``config.example.yaml`` to ``config.yaml``.
+
+A missing ``config.yaml`` is not fatal - the server still starts and can host a
+human vs human game. A profile is only required once a game has an LLM side.
+A ``config.yaml`` that *is* present but malformed is fatal: every section is
+validated so a shape mistake is reported instead of surfacing later as an
+unrelated ``AttributeError``.
 """
 
 from __future__ import annotations
@@ -249,33 +254,70 @@ def missing_config_message(cfg_path: Path) -> str:
     )
 
 
+def _section(data: Dict[str, Any], key: str, cfg_path: Path) -> Dict[str, Any]:
+    """Return ``data[key]`` as a mapping, or raise a readable ConfigError."""
+
+    value = data.get(key)
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ConfigError(
+            f"{cfg_path}: '{key}' must be a mapping of keys to values "
+            f"(YAML 'key: value' lines), got {type(value).__name__}."
+        )
+    return value
+
+
 def load_config(path: Optional[Path | str] = None, required: bool = True) -> AppConfig:
     """Load configuration from YAML.
 
     When ``required`` is true and the file does not exist a :class:`ConfigError`
     is raised; callers that only need the built-in defaults pass
-    ``required=False``.
+    ``required=False``. When the file *does* exist its structure is validated, so
+    a shape mistake is reported as a :class:`ConfigError` instead of surfacing
+    later as an unrelated ``AttributeError`` or ``TypeError``.
     """
 
     cfg_path = Path(path) if path else DEFAULT_CONFIG_PATH
-    data: Dict[str, Any] = {}
+    data: Any = {}
     if cfg_path.exists():
-        with cfg_path.open("r", encoding="utf-8") as fh:
-            data = yaml.safe_load(fh) or {}
+        try:
+            with cfg_path.open("r", encoding="utf-8") as fh:
+                data = yaml.safe_load(fh)
+        except yaml.YAMLError as exc:
+            raise ConfigError(f"{cfg_path}: not valid YAML ({exc}).") from exc
+        if data is None:  # an empty file is a valid, fully defaulted config
+            data = {}
+        if not isinstance(data, dict):
+            raise ConfigError(
+                f"{cfg_path}: the top level must be a mapping of sections "
+                f"(llm_profiles, draw, loop, storage), got "
+                f"{type(data).__name__}."
+            )
     elif required:
         raise ConfigError(missing_config_message(cfg_path))
 
     profiles: Dict[str, LlmProfile] = {}
-    raw_profiles = data.get("llm_profiles") or {}
-    for name, raw in raw_profiles.items():
-        profiles[name] = LlmProfile.from_dict(str(name), raw or {})
+    for name, raw in _section(data, "llm_profiles", cfg_path).items():
+        if raw is None:
+            raw = {}
+        if not isinstance(raw, dict):
+            raise ConfigError(
+                f"{cfg_path}: llm_profiles.{name} must be a mapping of settings, "
+                f"got {type(raw).__name__}."
+            )
+        profiles[str(name)] = LlmProfile.from_dict(str(name), raw)
+
+    seed = data.get("seed")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ConfigError(f"{cfg_path}: 'seed' must be an integer or null.")
 
     cfg = AppConfig(
         llm_profiles=profiles,
-        draw=DrawConfig.from_dict(data.get("draw") or {}),
-        loop=LoopConfig.from_dict(data.get("loop") or {}),
-        storage=StorageConfig.from_dict(data.get("storage") or {}),
-        seed=data.get("seed"),
+        draw=DrawConfig.from_dict(_section(data, "draw", cfg_path)),
+        loop=LoopConfig.from_dict(_section(data, "loop", cfg_path)),
+        storage=StorageConfig.from_dict(_section(data, "storage", cfg_path)),
+        seed=seed,
     )
 
     # Environment convenience overrides for the conventional "default" profile.

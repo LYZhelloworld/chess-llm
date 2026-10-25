@@ -13,7 +13,7 @@ import logging
 import sys
 from pathlib import Path
 
-from src.config import DEFAULT_CONFIG_PATH, AppConfig, load_config
+from src.config import DEFAULT_CONFIG_PATH, AppConfig, ConfigError, load_config
 from src.game.storage import StoragePaths, setup_logging
 from src.ui.server import create_app
 
@@ -30,10 +30,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(DEFAULT_CONFIG_PATH),
         help="path to config.yaml (copied from config.example.yaml).",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="web server host")
     parser.add_argument("--port", type=int, default=8000, help="web server port")
     parser.add_argument("--log-level", default=None, help="DEBUG, INFO, WARNING or ERROR")
     return parser
+
+
+BIND_HOST = "127.0.0.1"
+"""The only address the web UI listens on.
+
+There is no ``--host`` flag and no config key for it. The API has no
+authentication and every LLM turn spends the operator's credits, so it is meant
+to be reached from this machine and nothing else. Binding a public address and
+rejecting requests afterwards would still leave the port visible to scanners,
+and a flag to do so would only be a trap.
+"""
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,8 +52,13 @@ def main(argv: list[str] | None = None) -> int:
     cfg_path = Path(args.config)
     # A missing config is allowed at launch: the UI still loads, but starting an
     # LLM game then fails with a clear "profile not configured" message rather
-    # than crashing here. A human vs human game needs no config at all.
-    config = load_config(cfg_path, required=False)
+    # than crashing here. A human vs human game needs no config at all. A config
+    # that exists but is malformed is reported and the process stops.
+    try:
+        config = load_config(cfg_path, required=False)
+    except ConfigError as exc:
+        LOGGER.error("%s", exc)
+        return 2
     if args.log_level:
         config.storage.log_level = args.log_level
 
@@ -61,9 +76,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     app = create_app(config=config, paths=paths)
-    print(f"chess-llm web UI: http://{args.host}:{args.port}")
+    print(f"chess-llm web UI: http://{BIND_HOST}:{args.port}")
     print("No game is running yet - create a new game or load a saved one in the browser.")
-    uvicorn.run(app, host=args.host, port=args.port, log_config=None)
+    uvicorn.run(app, host=BIND_HOST, port=args.port, log_config=None)
     return 0
 
 

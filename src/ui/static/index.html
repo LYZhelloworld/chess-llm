@@ -18,59 +18,89 @@
     --dark-square: #b58863;
     --select: #f7d774;
     --target: rgba(47, 111, 235, 0.35);
+    /* Height of the conversation card, as a share of the viewport. */
+    --conv-h: clamp(8.75rem, 26vh, 16rem);
   }
   * { box-sizing: border-box; }
-  html, body { height: 100%; }
+  /* Every length below is expressed in rem and the root font-size follows the
+     viewport height (1.78vh ~= 16px on a 900px-tall window). Shrinking the
+     window therefore scales the whole UI down proportionally - type, padding,
+     controls and the board - instead of leaving fixed-size pieces that no
+     longer fit and force a page scrollbar. The clamp keeps text legible at the
+     bottom and stops it getting comically large on very tall screens. */
+  html { height: 100%; font-size: clamp(10px, 1.78vh, 17px); }
   body {
     margin: 0;
     font-family: "Segoe UI", -apple-system, "Helvetica Neue", Arial, sans-serif;
     background: var(--bg);
     color: var(--text);
     display: flex; flex-direction: column;
-    height: 100vh; overflow: hidden;
+    height: 100vh;
+    height: 100dvh;
+    /* The document itself never scrolls: the layout is sized from the viewport
+       and any overflow is absorbed by the cards' own scroll areas. */
+    overflow: hidden;
   }
-  /* The page fills the viewport; only the Moves list and the chat scroll
-     internally, so there is no page-level scrollbar. */
-  .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-width: 1240px; width: 100%; margin: 0 auto; overflow: hidden; }
+  .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; max-width: 77.5rem; width: 100%; margin: 0 auto; }
   header { flex: 0 0 auto; background: var(--card); border-bottom: 1px solid var(--border); }
   .header-inner {
-    display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
-    padding: 14px 22px;
+    display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+    padding: .875rem 1.375rem;
   }
-  h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
-  .meta { color: var(--muted); font-size: 13px; }
-  /* Layout: a vertical stack (main) of a top row and the conversation below.
-     The height lives on the first row; both columns stretch to it so the board
-     and the right-hand game+moves column are flush. */
-  .app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 40px; overflow: hidden; }
+  h1 { font-size: 1.125rem; margin: 0; letter-spacing: .3px; }
+  .meta { color: var(--muted); font-size: .8125rem; }
+  /* Layout: a grid whose first row takes all the height the conversation does
+     not need, the second row a fixed share of the viewport. Because the split
+     is resolved by the grid and not by subtracting hard-coded chrome from
+     100vh, the total can never exceed the viewport. */
+  .app {
+    flex: 1 1 auto; min-height: 0;
+    display: grid;
+    grid-template-rows: minmax(0, 1fr) var(--conv-h);
+    gap: 1.125rem;
+    padding: 1.125rem 1.375rem;
+  }
   .top-row {
-    display: grid; grid-template-columns: minmax(420px, 640px) minmax(320px, 1fr);
-    gap: 18px; align-items: stretch;
-    flex: 0 1 auto; min-height: 0;
-    height: min(640px, 72vh);
+    display: grid; grid-template-columns: minmax(24rem, 40rem) minmax(20rem, 1fr);
+    /* One row that fills the grid area. An `auto` row would size itself to the
+       board's intrinsic (square) height, overflow the area and paint over the
+       conversation underneath. */
+    grid-template-rows: minmax(0, 1fr);
+    gap: 1.125rem; align-items: stretch;
+    min-height: 0;
   }
-  .col { min-width: 0; }
-  .col.side { display: flex; flex-direction: column; gap: 14px; }
-  .board-card { height: 100%; display: flex; flex-direction: column; margin-bottom: 0; }
-  /* The conversation fills only the space left *below* the top row. flex-basis 0
-     + min-height:0 stops its content from pushing the top row up/under it; the
-     inner #chat scrolls instead. */
-  .conversation-card { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+  .col { min-width: 0; min-height: 0; }
+  .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+  .conversation-card { min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
   @media (max-width: 1040px) {
-    .top-row { grid-template-columns: 1fr; height: auto; }
-    .col.side { display: block; }
+    /* Stacked layout: there is no room to fit a board plus two cards plus the
+       chat side by side, so columns go vertical and the page is allowed to
+       scroll again - scaling the text down far enough would make it unreadable. */
+    body { overflow-y: auto; }
+    .app { display: flex; flex-direction: column; }
+    .top-row { flex: 0 0 auto; grid-template-columns: 1fr; grid-template-rows: none; }
+    .col.side { display: block; overflow: visible; }
+    .board-card { height: auto; }
+    .board-fit { display: block; }
+    #board { height: auto; width: min(100%, 62vh); }
+    .conversation-card { flex: 0 0 auto; height: 60vh; min-height: 0; }
   }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: 14px 16px; margin-bottom: 14px;
+    padding: .875rem 1rem; margin-bottom: .875rem;
   }
-  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 10px; }
+  .card h2 { font-size: .8125rem; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 .625rem; }
+  /* The board is a square that must fit whatever height the card has left:
+     the wrapper takes the leftover space, the board derives its width from the
+     wrapper's height (height: 100% + aspect-ratio), so it can never grow past
+     the card and overlap the conversation. */
+  .board-fit { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; align-items: center; }
   #board {
     display: grid;
     grid-template-columns: repeat(8, 1fr);
     grid-template-rows: repeat(8, 1fr);
-    flex: 1 1 auto;
-    min-height: 0;
+    height: 100%;
+    width: auto;
     aspect-ratio: 1 / 1;
     max-width: 100%;
     margin: 0 auto;
@@ -78,7 +108,13 @@
   }
   .sq {
     display: flex; align-items: center; justify-content: center;
-    font-size: clamp(22px, 4.4vw, 54px); cursor: pointer; user-select: none; line-height: 1;
+    /* The board is sized from the row height, so the glyphs follow the viewport
+       height as well, with the width as a ceiling for the stacked layout where
+       the board is capped by the column instead. (Container queries would be
+       the natural tool, but `container-type: inline-size` collapses the board's
+       own height once the width, not the height, determines its size.) */
+    font-size: clamp(1.1rem, min(4.4vh, 4.4vw), 3.2rem);
+    cursor: pointer; user-select: none; line-height: 1;
     aspect-ratio: 1 / 1; min-width: 0; min-height: 0; overflow: hidden;
   }
   .sq.light { background: var(--light-square); }
@@ -90,71 +126,97 @@
   }
   .sq { position: relative; }
   .sq.last { box-shadow: inset 0 0 0 3px rgba(47,111,235,.55); }
-  .coords { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; padding: 4px 2px; }
-  .status { display: flex; gap: 10px; flex-wrap: wrap; font-size: 13px; }
-  .pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 3px 10px; font-weight: 600; }
+  .coords { display: flex; justify-content: space-between; color: var(--muted); font-size: .75rem; padding: .25rem .125rem; }
+  .status { display: flex; gap: .625rem; flex-wrap: wrap; font-size: .8125rem; }
+  .pill { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: .1875rem .625rem; font-weight: 600; }
   .pill.warn { background: #fdeceb; color: var(--danger); }
   .pill.gray { background: #eef0f3; color: var(--muted); }
-  table.moves { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.moves td { padding: 3px 6px; border-bottom: 1px solid #f0f1f4; }
-  table.moves td.num { color: var(--muted); width: 34px; }
-  /* The right column is a flex stack that stretches to the (pinned) top-row
-     height; the Moves list scrolls within whatever height is left after the
-     Game card. The .top-row height cap, not a fixed px here, bounds it. */
-  .side { display: flex; flex-direction: column; gap: 14px; min-height: 0; }
-  .side .card { margin-bottom: 0; }
-  .moves-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
-  .moves-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-  .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-  .chat-head h2 { margin: 0 0 10px; }
-  .toggle { font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
-  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; font-size: 13px; }
-  .msg { border-left: 3px solid var(--border); padding: 6px 10px; margin-bottom: 8px; word-break: break-word; }
+  table.moves { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+  table.moves td { padding: .1875rem .375rem; border-bottom: 1px solid #f0f1f4; }
+  table.moves td.num { color: var(--muted); width: 2.125rem; }
+  /* Game and Moves share one card and one scrollbar: the column is the scroll
+     container and the card is a single unshrinkable block inside it. Giving
+     Moves its own fixed height (and its own scrollbar) meant guessing how much
+     of the row the Game form would leave over - a guess that was wrong as soon
+     as a section grew or the window shrank. Letting the card be as tall as its
+     content and scrolling the column removes both numbers.
+     `overscroll-behavior: contain` is what keeps the page still while the
+     column scrolls: without it, once the list hits its end the wheel keeps
+     going and chains to the page, which is the "the whole page moves when I
+     scroll the chat" bug that the old `overflow: hidden` was working around. */
+  .side { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  /* Grow to fill the column so a short game still paints one card the full
+     height of the row; never shrink, because the card owns the scroll. */
+  .side .card { flex: 1 0 auto; margin-bottom: 0; }
+  .moves-sub h2 { margin-bottom: .375rem; }
+  .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
+  .chat-head h2 { margin: 0 0 .625rem; }
+  .toggle { font-size: .75rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
+  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: .8125rem; }
+  .msg { border-left: 3px solid var(--border); padding: .375rem .625rem; margin-bottom: .5rem; word-break: break-word; }
   .msg.user { border-left-color: #9aa3b2; color: var(--muted); }
   .msg.assistant { border-left-color: var(--accent); background: #fbfcfe; }
   .msg.tool { border-left-color: #c7cbd3; }
   .msg.white { border-left-color: #aab4c2; }
   .msg.black { border-left-color: #55606f; }
-  .msg .role { font-size: 11px; text-transform: uppercase; color: var(--muted); letter-spacing: .6px; }
+  .msg .role { font-size: .6875rem; text-transform: uppercase; color: var(--muted); letter-spacing: .6px; }
   .msg.live { border-left-color: var(--accent); background: #fbfcfe; }
   /* The chain of thought lives in a collapsible <details>. It is expanded while
      the live reply is still only thinking, and collapsed (both live, the moment
      spoken content starts, and in history) otherwise. */
   details.cot-box { border: 1px solid var(--border); border-radius: 6px; background: #f6f7f9; margin-bottom: 6px; }
   details.cot-box > summary {
-    cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
-    color: var(--muted); padding: 5px 8px; user-select: none;
+    cursor: pointer; font-size: .6875rem; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--muted); padding: .3125rem .5rem; user-select: none;
   }
   details.cot-box > summary::marker { color: var(--muted); }
-  details.cot-box > .md { padding: 0 8px 8px; }
+  details.cot-box > .md { padding: 0 .5rem .5rem; }
   /* Markdown produced by renderMarkdown() */
-  .md p { margin: 4px 0; }
+  .md p { margin: .25rem 0; }
   .md p:first-child { margin-top: 0; }
   .md p:last-child { margin-bottom: 0; }
-  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: 8px 0 4px; font-size: 14px; }
-  .md ul, .md ol { margin: 4px 0; padding-left: 20px; }
-  .md li { margin: 2px 0; }
-  .md blockquote { margin: 4px 0; padding-left: 8px; border-left: 2px solid var(--border); color: var(--muted); }
-  .md code { background: #eef0f3; border-radius: 4px; padding: 0 3px; font-size: 12px; }
-  .md pre { margin: 6px 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 8px; overflow: auto; font-size: 12px; }
+  .md h1, .md h2, .md h3, .md h4, .md h5, .md h6 { margin: .5rem 0 .25rem; font-size: .875rem; }
+  .md ul, .md ol { margin: .25rem 0; padding-left: 1.25rem; }
+  .md li { margin: .125rem 0; }
+  .md blockquote { margin: .25rem 0; padding-left: .5rem; border-left: 2px solid var(--border); color: var(--muted); }
+  .md code { background: #eef0f3; border-radius: 4px; padding: 0 3px; font-size: .75rem; }
+  .md pre { margin: .375rem 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: .5rem; overflow: auto; font-size: .75rem; }
   .md pre code { background: none; padding: 0; }
   .md a { color: var(--accent); }
-  .md hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
-  pre.json { margin: 4px 0 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 200px; overflow: auto; font-size: 12px; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .md hr { border: none; border-top: 1px solid var(--border); margin: .5rem 0; }
+  pre.json { margin: .25rem 0 0; background: #f6f7f9; border: 1px solid var(--border); border-radius: 6px; padding: .5rem; max-height: 12.5rem; overflow: auto; font-size: .75rem; }
+  .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
   input[type=text], select, button {
-    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    font: inherit; padding: .375rem .625rem; border: 1px solid var(--border);
     border-radius: 6px; background: #fff; color: var(--text);
   }
   button { cursor: pointer; background: var(--accent); color: #fff; border-color: var(--accent); }
   button.secondary { background: #fff; color: var(--text); }
   button.danger { background: var(--danger); border-color: var(--danger); }
-  input[type=text] { min-width: 90px; }
-  .hint { color: var(--muted); font-size: 12px; }
-  #banner { padding: 10px 16px; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: 12px; font-size: 13px; }
+  /* Without this a disabled button keeps its accent fill and still looks
+     clickable - the only cue was the browser's greyed text on a coloured
+     background, which is easy to miss. */
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  input[type=text] { min-width: 5.625rem; }
+  .hint { color: var(--muted); font-size: .75rem; }
+  #banner { padding: .625rem 1rem; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: .75rem; font-size: .8125rem; }
   #banner.hidden { display: none; }
-  .card-sub { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
-  .card-sub h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 4px; }
+  /* The banner takes ~2.5rem out of a page whose height is fixed to the
+     viewport. Take it back from the conversation rather than from the columns,
+     which would otherwise start scrolling inside themselves. */
+  #banner:not(.hidden) + .app { --conv-h: clamp(6rem, 18vh, 11rem); }
+  .card-sub { margin-top: .875rem; border-top: 1px solid var(--border); padding-top: .625rem; }
+  .card-sub h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 0 0 .25rem; }
+  /* Short windows are the one case the rem scale cannot rescue: the right
+     column is a fixed number of form rows, not a proportional block. Drop the
+     helper copy and tighten the section gaps so the column stays readable
+     while it scrolls. */
+  @media (max-height: 780px) {
+    .hint { display: none; }
+    .card-sub { margin-top: .5rem; padding-top: .375rem; }
+    .card h2 { margin-bottom: .375rem; }
+    .status { font-size: .75rem; gap: .375rem; }
+  }
 </style>
 </head>
 <body>
@@ -173,9 +235,9 @@
       <div class="col board-col">
         <div class="card board-card">
       <h2>Board</h2>
-      <div id="board"></div>
+      <div class="board-fit"><div id="board"></div></div>
       <div class="coords"><span id="turn-label"></span></div>
-      <div class="row" style="margin-top:10px">
+      <div class="row" style="margin-top:.625rem">
         <input type="text" id="san" placeholder="SAN, e.g. Nf3" />
         <button id="play">Play move</button>
         <select id="promotion" title="promotion piece">
@@ -196,7 +258,7 @@
 
         <div class="card-sub">
           <h3>New game</h3>
-          <div class="row" style="margin-top:6px">
+          <div class="row" style="margin-top:.375rem">
             <select id="new-white"></select>
             <select id="new-black"></select>
             <button class="secondary" id="new-game">New game</button>
@@ -206,26 +268,25 @@
 
         <div class="card-sub">
           <h3>Load saved game</h3>
-          <div class="row" style="margin-top:6px">
+          <div class="row" style="margin-top:.375rem">
             <select id="saved-games"><option value="">load saved game…</option></select>
             <button class="secondary" id="load-game">Load</button>
           </div>
-          <label class="toggle" style="margin-top:8px; display:inline-block">
+          <label class="toggle" style="margin-top:.5rem; display:inline-block">
             <input type="checkbox" id="override-seats" /> override seats
           </label>
-          <div class="row" id="override-row" style="margin-top:6px; display:none">
+          <div class="row" id="override-row" style="margin-top:.375rem; display:none">
             <select id="load-white"><option value="">(keep stored)</option></select>
             <select id="load-black"><option value="">(keep stored)</option></select>
           </div>
         </div>
 
-        <div class="row" style="margin-top:12px">
-          <button class="danger" id="resign">Resign (human side)</button>
+        <div class="row" style="margin-top:.75rem">
+          <button class="danger" id="resign" title="Resign the game.">Resign</button>
         </div>
-      </div>
-      <div class="card moves-card">
-        <h2>Moves</h2>
-        <div class="moves-scroll">
+
+        <div class="card-sub moves-sub">
+          <h2>Moves</h2>
           <table class="moves" id="moves"></table>
         </div>
       </div>
@@ -278,15 +339,31 @@ function fenToSquares(fen) {
   return squares; // index 0 = a8 ... 63 = h1
 }
 
-function squareName(index) {
+// Squares are addressed by name everywhere (clicks, highlights, promotion), so
+// the display order comes from the orientation instead of the FEN order.
+function squareName(index, flipped) {
   const file = index % 8;
-  const rank = 8 - Math.floor(index / 8);
-  return "abcdefgh"[file] + rank;
+  const row = Math.floor(index / 8);
+  return "abcdefgh"[flipped ? 7 - file : file] + (flipped ? row + 1 : 8 - row);
+}
+
+function pieceAt(squares, name) {
+  const file = "abcdefgh".indexOf(name[0]);
+  const rank = parseInt(name[1], 10);
+  return squares[(8 - rank) * 8 + file] || "";
+}
+
+// A single human seat playing black sees the board from black's side. Hot-seat
+// games keep white at the bottom because both players share one screen.
+function boardFlipped() {
+  const seats = humanSides();
+  return seats.length === 1 && seats[0] === "black";
 }
 
 function renderBoard() {
   if (!state) return;
   const squares = fenToSquares(state.fen);
+  const flipped = boardFlipped();
   const legal = new Set((state.legal_moves || []).map(m => m.uci));
   const last = state.moves.length ? state.moves[state.moves.length - 1].uci : null;
   const lastFrom = last ? last.slice(0, 2) : null;
@@ -295,10 +372,12 @@ function renderBoard() {
   boardEl.innerHTML = "";
   for (let i = 0; i < 64; i++) {
     const cell = document.createElement("div");
-    const file = i % 8, rank = 8 - Math.floor(i / 8);
-    cell.className = "sq " + (((file + rank) % 2 === 0) ? "dark" : "light");
-    const name = squareName(i);
-    const piece = squares[i];
+    const name = squareName(i, flipped);
+    const fileIndex = "abcdefgh".indexOf(name[0]);
+    const rank = parseInt(name[1], 10);
+    // a8 and h1 are light squares, so an even file+rank sum means light.
+    cell.className = "sq " + (((fileIndex + rank) % 2 === 0) ? "light" : "dark");
+    const piece = pieceAt(squares, name);
     cell.textContent = piece ? (UNICODE[piece] || piece) : "";
     if (piece && piece === piece.toUpperCase()) cell.style.color = "#fff";
     cell.dataset.square = name;
@@ -395,16 +474,26 @@ function renderStatus() {
     document.getElementById("new-black").value = state.black.kind;
   }
 
+  // One fixed label: the button either works or it is greyed out. Why it is
+  // unavailable lives in the tooltip, so the label does not have to double as a
+  // status description ("Resign (no human seat)" read like an error message).
   const seats = humanSides();
   const resignBtn = document.getElementById("resign");
+  resignBtn.textContent = "Resign";
   if (!seats.length) {
     resignBtn.disabled = true;
-    resignBtn.textContent = "Resign (no human seat)";
+    resignBtn.title = "Both sides are models: they resign through their own tools.";
+  } else if (state.finished) {
+    resignBtn.disabled = true;
+    resignBtn.title = "The game is over.";
   } else {
-    resignBtn.disabled = state.finished;
-    resignBtn.textContent = seats.length === 2
-      ? `Resign (${state.turn}, to move)`
-      : `Resign (${seats[0]})`;
+    const side = humanSide();
+    resignBtn.disabled = false;
+    // Hot-seat: the click can only ever resign the side to move, because the
+    // page cannot tell the two players apart. Say so instead of surprising them.
+    resignBtn.title = seats.length === 2
+      ? `${side === "white" ? "White" : "Black"} to move - resigning ends the game for ${side}.`
+      : `You play ${side} - resigning ends the game.`;
   }
 }
 
@@ -703,7 +792,8 @@ document.getElementById("new-game").addEventListener("click", async () => {
 document.getElementById("resign").addEventListener("click", async () => {
   const side = humanSide();
   if (!side) { flash("There is no human side in this game."); return; }
-  await fetch("/api/resign", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({side})});
+  const res = await fetch("/api/resign", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({side})});
+  if (!res.ok) { await showApiError(res); return; }
   await refresh();
 });
 
@@ -752,8 +842,17 @@ function connect() {
     if (payload.type === "llm_delta") { accumulateDelta(payload); return; }
 
     if (payload.type === "game_started" || payload.type === "game_loaded") {
+      // A replacement game must not inherit the previous game's half-streamed
+      // bubble or selection. The server also stops forwarding events from a
+      // game that has been replaced, so nothing else from it can arrive.
+      liveDelta = null;
+      livePendingSep = { content: false, reasoning: false };
+      liveBubbleEl = null;
+      selected = null;
       loadSavedGames();
       loadProfiles();
+      scheduleRefresh();
+      return;
     }
 
     // A new turn begins: drop the previous live bubble so the next model reply

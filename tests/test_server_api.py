@@ -35,8 +35,11 @@ def make_client(tmp_path):
     paths = StoragePaths(
         games_dir=tmp_path / "games", logs_dir=tmp_path / "logs"
     ).ensure()
-    app = create_app(config=make_config(), paths=paths)
-    return TestClient(app), paths
+    cfg = make_config()
+    app = create_app(config=cfg, paths=paths)
+    # The Host header is checked, so the tests have to address the server the
+    # way the browser does. TestClient's default base_url is "testserver".
+    return TestClient(app, base_url="http://127.0.0.1"), paths
 
 
 # ----------------------------------------------------------------- helpers
@@ -152,3 +155,73 @@ def test_load_errors_when_stored_profile_is_unavailable(tmp_path):
     res = client.post("/api/load", json={"game_id": gid})
     assert res.status_code == 400
     assert "ghost" in res.json()["detail"]
+
+
+# --------------------------------------------------------------------- resign
+def test_resign_by_the_human_side_ends_the_game(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/resign", json={"side": "white"})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["resigned"] == "white"
+    assert body["result"]["winner"] == "black"
+    assert client.get("/api/state").json()["finished"] is True
+
+
+def test_resign_accepts_an_optional_reason(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/resign", json={"side": "white", "reason": "no time"})
+
+    assert res.status_code == 200
+    assert res.json()["result"]["detail"] == "no time"
+
+
+def test_resign_is_rejected_for_the_seat_that_is_not_to_move(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/resign", json={"side": "black"})
+
+    assert res.status_code == 400
+    assert res.json()["error"]["category"] == "illegal_state"
+
+
+def test_resign_requires_a_running_game(tmp_path):
+    client, _ = make_client(tmp_path)
+
+    res = client.post("/api/resign", json={"side": "white"})
+
+    assert res.status_code == 400
+    assert "No game" in res.json()["detail"]
+
+
+# ----------------------------------------------------------- local-only access
+def test_a_request_addressed_to_another_name_is_refused(tmp_path):
+    """DNS rebinding: the request arrives from loopback but is not for us.
+
+    A page the browser already has open can resolve a name it controls to
+    127.0.0.1 and have the browser replay its requests. The peer address is
+    loopback for those, so the Host header is the only thing that separates
+    them from the real UI - and the API has no authentication and spends the
+    operator's credits.
+    """
+
+    client, _ = make_client(tmp_path)
+
+    res = client.get("/api/state", headers={"host": "attacker.example"})
+
+    assert res.status_code == 403
+    assert "this machine" in res.json()["detail"]
+
+
+def test_local_host_headers_are_served(tmp_path):
+    client, _ = make_client(tmp_path)
+
+    for host in ("127.0.0.1:8000", "localhost:8000", "[::1]:8000"):
+        res = client.get("/api/state", headers={"host": host})
+        assert res.status_code == 200, host

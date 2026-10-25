@@ -257,68 +257,6 @@ def test_reasoning_off_never_sends_it_and_does_not_retry():
     assert outcome.move_san == "e4"
     assert len(client.requests) == 1
     assert not any("reasoning" in m for m in client.requests[0])
-
-
-class RefusingClient:
-    """Rejects any request that still carries a stored chain of thought."""
-
-    def __init__(self, mode="auto"):
-        self.mode = mode
-        self.requests = []
-        self._refused = False
-
-    def chat(self, messages, tools=None):
-        self.requests.append(list(messages))
-        if any("reasoning" in m for m in messages):
-            raise RuntimeError("400 unknown field 'reasoning'")
-        return tool_call("make_move", '{"move": "e4"}')
-
-    def reasoning_enabled(self):
-        return self.mode != "off"
-
-    def reasoning_refused(self):
-        if self.mode != "auto" or self._refused:
-            return False
-        self._refused = True
-        return True
-
-
-def _memory_with_reasoning():
-    return ChatMemory(
-        [
-            {"role": "user", "content": "It is your turn."},
-            {"role": "assistant", "content": "I played something.", "reasoning": "deep thought"},
-        ]
-    )
-
-
-def test_auto_mode_drops_the_chain_of_thought_after_a_refusal():
-    engine = ChessEngine()
-    memory = _memory_with_reasoning()
-    client = RefusingClient()
-
-    outcome = run_llm_turn(client, engine, "white", memory, AppConfig(), rng=random.Random(0))
-
-    assert outcome.move_san == "e4"
-    assert len(client.requests) == 2
-    assert any("reasoning" in m for m in client.requests[0])
-    assert not any("reasoning" in m for m in client.requests[1])
-    # The transcript still holds it, even though it is no longer sent.
-    assert memory.messages[1]["reasoning"] == "deep thought"
-
-
-def test_reasoning_off_never_sends_it_and_does_not_retry():
-    engine = ChessEngine()
-    memory = _memory_with_reasoning()
-    client = RefusingClient(mode="off")
-
-    outcome = run_llm_turn(client, engine, "white", memory, AppConfig(), rng=random.Random(0))
-
-    assert outcome.move_san == "e4"
-    assert len(client.requests) == 1
-    assert not any("reasoning" in m for m in client.requests[0])
-
-
 def test_a_stale_fallback_switch_cannot_starve_a_turn():
     """`loop.fallback_random_move` is gone, and an old config file cannot bring
     it back.

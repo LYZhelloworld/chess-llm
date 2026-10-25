@@ -91,6 +91,13 @@ module except the agent loop.
 - **Failure is never fatal.** A tool error is classified and handed back to the
   model; a backend failure falls back to a random legal move (seeded, so runs
   are reproducible) instead of killing the game.
+- **The HTTP API is localhost-only.** The server listens on `127.0.0.1` and the
+  web UI is the way in.
+- **Resigning over the API is a human action.** `POST /api/resign` only accepts
+  a human seat (an API caller must not be able to make the model resign), and in
+  a hot-seat game only the side to move; the controller enforces this, not just
+  the browser. A model resigns itself through its own `resign` tool, which ends
+  its turn and is applied by the controller as part of that turn.
 
 ## 5. Web UI
 
@@ -98,7 +105,9 @@ module except the agent loop.
 - `GET /api/state` - full snapshot: FEN, ASCII, legal moves, move list, both
   chat histories, the merged `conversation` shown in the UI, result.
 - `POST /api/move` - `{ "move": "Nf3" }` (SAN or UCI).
-- `POST /api/resign` - `{ "side": "white", "reason": "..." }` (reason is optional).
+- `POST /api/resign` - `{ "side": "white", "reason": "..." }` (reason is
+  optional). Rejected with `400` unless the seat is human and - in a hot-seat
+  game - is the side to move.
 - `POST /api/new` - start a game, choosing human/llm per side.
 - `POST /api/load` - `{ "game_id": "game_20260925_195646" }`.
 - `GET /api/games` - saved game ids.
@@ -109,16 +118,31 @@ module except the agent loop.
   Streaming events (`llm_delta`) update the UI in place; other events trigger a
   state refresh.
 
+`--port` is the only part of the bind the command line controls; the address is
+fixed to `127.0.0.1`. The `local_only` middleware (`src/ui/server.py`)
+additionally rejects requests whose `Host` header does not name this machine, so
+an app assembled with `create_app` directly is covered too.
+
+The board is drawn from white's side. When the only human seat is black it is
+flipped, so the side the operator actually plays is at the bottom; a hot-seat
+game keeps white at the bottom because both players share the screen.
+
 LLM turns run in a worker thread (`asyncio.to_thread`) so the event loop keeps
-serving requests, and a lock guarantees only one turn runs at a time.
+serving requests, and a lock guarantees only one turn runs at a time. Because a
+turn can outlive the game it belongs to, each controller emits through a guard
+that drops its events once a new game has replaced it.
 
 ## 6. Configuration
 
 `config.yaml` holds LLM profiles (base URL, `api_key`, `api_key_env` fallback,
 model, temperature, timeouts, retries, the `reasoning` mode and the `stream`
-mode), draw thresholds, loop limits and storage directories. The repo ships
-`config.example.yaml` only; copy it to `config.yaml` to start. `config.yaml` is
-git-ignored because it contains API keys.
+mode), draw thresholds, loop limits, storage directories and the `server` access
+policy. The repo ships `config.example.yaml` only; copy it to `config.yaml` to
+start. `config.yaml` is git-ignored because it contains API keys.
+
+The sections are validated on load: a malformed one (for example
+`llm_profiles: "openai"` instead of a mapping) raises a `ConfigError` naming the
+offending key, rather than failing later with an `AttributeError`.
 
 The server starts **without** `config.yaml`: you can launch it and play
 human vs human straight away. A profile is only *required* when you start a game

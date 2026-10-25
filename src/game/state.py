@@ -17,7 +17,8 @@ class PlayerSpec:
     """Who controls one side: a human or an LLM profile."""
 
     kind: str = HUMAN
-    profile: str = "default"
+    # Empty for a human seat: a person is not played by a profile.
+    profile: str = ""
     model: str = ""
     label: str = ""
 
@@ -41,7 +42,7 @@ class PlayerSpec:
         data = data or {}
         return cls(
             kind=data.get("kind", HUMAN),
-            profile=data.get("profile", "default"),
+            profile=data.get("profile", ""),
             model=data.get("model", ""),
             label=data.get("label", ""),
         )
@@ -70,7 +71,6 @@ class GameState:
     black_chat_history: List[Dict[str, Any]] = field(default_factory=list)
     result: Optional[Dict[str, Any]] = None
     finished: bool = False
-    seed: Optional[int] = None
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -157,7 +157,6 @@ class GameState:
             "black_chat_history": self.black_chat_history,
             "result": self.result,
             "finished": self.finished,
-            "seed": self.seed,
         }
 
     @classmethod
@@ -178,7 +177,6 @@ class GameState:
             if data.get("result")
             else None,
             finished=bool(data.get("finished", False)),
-            seed=data.get("seed"),
         )
         return state
 

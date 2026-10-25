@@ -11,7 +11,9 @@
 # Every value below is optional; missing keys fall back to the built-in defaults.
 
 llm_profiles:
-  default:
+  # The name is just a label: the web UI lists it and a saved game remembers it.
+  # Nothing in the code gives any particular name a special meaning.
+  openai:
     base_url: "https://api.openai.com/v1"
     # Preferred: the key itself. When set it wins over `api_key_env`.
     api_key: "sk-..."
@@ -72,6 +74,3 @@ storage:
   autosave: true
   log_level: "INFO"
   log_to_console: true
-
-# Optional: fixed seed makes random fallback moves reproducible.
-seed: null

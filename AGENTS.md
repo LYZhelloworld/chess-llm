@@ -58,5 +58,11 @@ python tests/fake_llm_server.py --port 8099   # stub backend for local smoke tes
 
 Not mandatory, but new engine, tool and loop behaviour should come with a
 `pytest` case under `tests/`. Use a scripted fake client (see
-`tests/test_controller.py`) instead of calling a real model. Game records in
-`games/` and `logs/` are working artifacts, not fixtures.
+`tests/game/test_controller.py`) instead of calling a real model. Game records
+in `games/` and `logs/` are working artifacts, not fixtures.
+
+`tests/` mirrors `src/`: the cases for `src/agent/loop.py` live in
+`tests/agent/test_loop.py`, and modules at the root of `src` (`config`, `main`,
+`prompts`) keep their tests at the root of `tests`. `tests/test_suite_hygiene.py`
+enforces both the layout and the rule that no `test_*` name is defined twice in
+one module.

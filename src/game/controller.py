@@ -35,7 +35,7 @@ class GameController:
         self.config = config
         self.paths = paths
         self._emit = emit or (lambda _event: None)
-        self.rng = rng or random.Random(state.seed)
+        self.rng = rng or random.Random()
 
         self.engine = ChessEngine(state.start_fen)
         for san in state.moves_san:

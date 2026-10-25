@@ -29,8 +29,8 @@ logs/log_20260925_195646.log       追加写入，每行都带前缀
   "created_at": "2026-09-25T19:56:46",
   "mode": "human-vs-llm",
   "start_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
-  "white": {"kind": "human", "profile": "default", "model": "", "label": ""},
-  "black": {"kind": "llm", "profile": "default", "model": "gpt-4o-mini", "label": ""},
+  "white": {"kind": "human", "profile": "", "model": "", "label": ""},
+  "black": {"kind": "llm", "profile": "openai", "model": "gpt-4o-mini", "label": ""},
   "moves_san": ["e4", "e5"],
   "moves_uci": ["e2e4", "e7e5"],
   "white_chat_history": [],
@@ -40,8 +40,7 @@ logs/log_20260925_195646.log       追加写入，每行都带前缀
     {"role": "tool", "tool_call_id": "call_1", "name": "get_legal_moves", "content": "{\n  \"ok\": true, ... }"}
   ],
   "result": {"winner": null, "reason": "repetition", "detail": "...", "pgn_result": "1/2-1/2"},
-  "finished": true,
-  "seed": null
+  "finished": true
 }
 ```
 

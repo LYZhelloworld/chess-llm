@@ -28,7 +28,6 @@ def make_state():
         black=PlayerSpec.llm("default", "gpt-4o-mini"),
         moves_san=["e4", "e5", "Nf3"],
         moves_uci=["e2e4", "e7e5", "g1f3"],
-        seed=7,
     )
     # Remarks live in the chat history; the PGN comment is derived from it.
     state.white_chat_history = [

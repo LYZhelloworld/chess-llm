@@ -89,8 +89,8 @@ module except the agent loop.
 - **`make_move` is strict.** Only strings returned by `get_legal_moves` are
   accepted, one per call, and the call ends the turn.
 - **Failure is never fatal.** A tool error is classified and handed back to the
-  model; a backend failure falls back to a random legal move (seeded, so runs
-  are reproducible) instead of killing the game.
+  model; a backend failure falls back to a random legal move instead of killing
+  the game.
 - **The HTTP API is localhost-only.** The server listens on `127.0.0.1` and the
   web UI is the way in.
 - **Resigning over the API is a human action.** `POST /api/resign` only accepts
@@ -152,9 +152,9 @@ has no key (or does not exist) is rejected with a clear message instead of
 crashing.
 
 Precedence for the key: `api_key` in the profile → the `api_key_env` variable.
-`OPENAI_BASE_URL` / `OPENAI_MODEL` environment variables override the *default*
-profile. There are no command-line flags for keys, models, or sides - those are
-all chosen in the browser.
+No profile name is special: the endpoints and models come from `config.yaml` and
+nothing else. There are no command-line flags for keys, models, or sides - those
+are all chosen in the browser.
 
 ## 6.1 Game modes
 

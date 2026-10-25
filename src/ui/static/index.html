@@ -789,20 +789,23 @@ async function loadProfiles() {
 // `kind` alone is not enough - it would be "llm" for every model, which matches
 // no option and leaves the select showing whatever it showed before.
 function seatValue(spec) {
-  return spec.kind === "llm" ? `llm:${spec.profile || "default"}` : "human";
+  // A stored seat with no profile name keeps an empty name: "llm:". Inventing a
+  // placeholder word here would look like a profile that actually exists.
+  return spec.kind === "llm" ? `llm:${spec.profile || ""}` : "human";
 }
 
 // Set a side select to a stored seat, adding the option when the list does not
-// contain it. Two ways that happens: the profile was removed from config.yaml
-// after the game was saved, or /api/profiles failed and `profiles` is empty.
-// Assigning a value with no matching option does nothing at all, so the select
-// would keep displaying its first entry - "human" - for a seat a model is
-// playing. The extra option admits it cannot name the side instead of lying.
+// contain it. Ways that happens: the profile was removed from config.yaml after
+// the game was saved, the stored seat never had a profile name, or
+// /api/profiles failed and `profiles` is empty. Assigning a value with no
+// matching option does nothing at all, so the select would keep displaying its
+// first entry - "human" - for a seat a model is playing. The extra option shows
+// the bare value, marked red: no invented name and no status word next to it.
 function selectSeat(select, value) {
   if (!Array.from(select.options).some(o => o.value === value)) {
     const opt = document.createElement("option");
     opt.value = value;
-    opt.textContent = `${value.replace(":", ": ")} (unavailable)`;
+    opt.textContent = value.replace(":", ": ");
     opt.style.color = "var(--danger)";
     select.appendChild(opt);
   }

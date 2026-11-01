@@ -70,7 +70,7 @@ class ChatMemory:
             groups = groups[-max_turns:]
         windowed: List[Dict[str, Any]] = []
         for group in groups:
-            windowed.extend(group if keep_reasoning else _without_reasoning(group))
+            windowed.extend(_for_backend(group, keep_reasoning))
         # Drop leading orphan tool results so the API never sees a result
         # without the tool call that produced it.
         while windowed and windowed[0].get("role") == "tool":
@@ -85,19 +85,29 @@ def _ask_client(client: Any, method: str, default: bool) -> bool:
     return default if not callable(function) else bool(function())
 
 
-def _without_reasoning(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Strip the stored chain of thought before sending history to a backend.
+# Keys a backend understands on a chat message. Everything else the transcript
+# carries (the chain of thought, the shared remark counter, the ply a remark
+# belongs to, the human-speech flag) is bookkeeping for us and is stripped here.
+_API_MESSAGE_KEYS = frozenset(
+    {"role", "content", "name", "tool_calls", "tool_call_id"}
+)
 
-    The reasoning is kept in the transcript (and in the game JSON) because it
-    is useful to read, but most backends reject it on the way back in.
+
+def _for_backend(
+    messages: List[Dict[str, Any]], keep_reasoning: bool = True
+) -> List[Dict[str, Any]]:
+    """Reduce transcript messages to what a backend accepts.
+
+    The chain of thought is kept in the transcript (and in the game JSON)
+    because it is useful to read, but most backends reject it on the way back
+    in - hence the switch. The reply stamps never leave this process.
     """
 
-    cleaned: List[Dict[str, Any]] = []
-    for message in messages:
-        if REASONING_KEY in message:
-            message = {k: v for k, v in message.items() if k != REASONING_KEY}
-        cleaned.append(message)
-    return cleaned
+    allowed = _API_MESSAGE_KEYS | {REASONING_KEY} if keep_reasoning else _API_MESSAGE_KEYS
+    return [
+        {key: value for key, value in message.items() if key in allowed}
+        for message in messages
+    ]
 
 
 @dataclass
@@ -107,6 +117,8 @@ class TurnOutcome:
     resigned: bool = False
     resign_reason: Optional[str] = None
     fallback_random: bool = False
+    # Texts accepted by the ``speak`` tool, in the order they were said. Plain
+    # model prose is private and never lands here.
     spoken: List[str] = field(default_factory=list)
     tool_events: List[Dict[str, Any]] = field(default_factory=list)
     transcript: List[Dict[str, Any]] = field(default_factory=list)
@@ -125,11 +137,15 @@ def run_llm_turn(
     executor_factory: Optional[Callable[[ChessEngine, str], ToolExecutor]] = None,
     keep_reasoning: Optional[bool] = None,
     opponent_speech: Optional[str] = None,
+    stamp: Optional[Callable[[Dict[str, Any], int], None]] = None,
 ) -> TurnOutcome:
     """Run one agent turn until it plays a move, resigns or runs out of turns.
 
     ``keep_reasoning`` says whether the stored chain of thought may be sent back
-    to the model; ``None`` falls back to what the client reports.
+    to the model; ``None`` falls back to what the client reports. ``stamp``
+    marks a message that carries speech with its place on the game's shared
+    timeline (see ``src.game.state``); without it the remarks still work, they
+    just cannot be ordered against the opponent's once the page is reloaded.
     """
 
     emit = emit or (lambda _event: None)
@@ -192,7 +208,7 @@ def run_llm_turn(
                 )
                 keep_reasoning = False
                 try:
-                    retry = messages[:1] + _without_reasoning(messages[1:])
+                    retry = messages[:1] + _for_backend(messages[1:], keep_reasoning=False)
                     response = client.chat(retry, TOOL_DEFINITIONS)
                 except Exception as retry_exc:  # noqa: BLE001
                     exc = retry_exc
@@ -205,11 +221,14 @@ def run_llm_turn(
                 return _fallback(engine, side, memory, outcome, emit, rng)
 
         assistant_message = response.to_message()
+        # A message that speaks gets its timeline slot now: a human may type
+        # while the model is still thinking, and their remark has to sort before
+        # everything this answer goes on to say.
+        if stamp is not None and any(call.name == "speak" for call in response.tool_calls):
+            stamp(assistant_message, engine.ply + 1)
         memory.add(assistant_message)
         outcome.transcript.append(assistant_message)
 
-        if response.content:
-            outcome.spoken.append(response.content)
         emit(
             {
                 "type": "llm_message",
@@ -262,6 +281,7 @@ def _run_tool(
             "arguments": call.arguments,
         }
     )
+    said_before = len(executor.said)
     result = executor.execute(call.name, call.arguments)
     tool_message: Dict[str, Any] = {
         "role": "tool",
@@ -282,6 +302,11 @@ def _run_tool(
             "result": result,
         }
     )
+    # The executor keeps only the remarks it accepted, so a rejected call never
+    # reaches the conversation - the same thing the rebuilt view will show.
+    if call.name == "speak" and len(executor.said) > said_before:
+        outcome.spoken.append(executor.said[-1])
+        emit({"type": "say", "side": side, "text": executor.said[-1]})
 
 
 def _fallback(

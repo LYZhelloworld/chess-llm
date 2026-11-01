@@ -1,5 +1,5 @@
 from src.engine.board import ChessEngine
-from src.prompts import turn_prompt
+from src.prompts import system_prompt, turn_prompt
 
 
 def test_turn_prompt_includes_material_legal_and_opponent():
@@ -11,7 +11,22 @@ def test_turn_prompt_includes_material_legal_and_opponent():
     assert "White 39 - Black 39" in text
     assert "Legal moves" in text
     assert "e4" in text
-    assert 'Opponent\'s last spoken remark: "Your move, coward."' in text
+    assert "Opponent's remarks since your last turn:" in text
+    assert "> Your move, coward." in text
+
+
+def test_every_paragraph_of_the_opponent_is_quoted():
+    text = turn_prompt(ChessEngine(), "white", opponent_speech="First line.\n\nSecond line.")
+
+    assert "> First line.\n>\n> Second line." in text
+
+
+def test_the_system_prompt_points_at_speak_for_public_text():
+    text = system_prompt("white")
+
+    assert "PRIVATE" in text
+    assert "`speak`" in text
+    assert "does not end your turn" in " ".join(text.split())
 
 
 def test_turn_prompt_reports_no_opponent_speech():

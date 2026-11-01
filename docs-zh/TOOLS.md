@@ -122,6 +122,29 @@ R N B Q K B N R
 失败时 `ok` 为 `false`，`steps` 显示这条线走到第几步，`message` 会先解释交替规则
 再给出引擎错误。
 
+## speak
+
+```json
+{"text": "Your king looks lonely over there."}
+```
+
+模型**唯一**的公开说话渠道。模型以普通文本写下的一切都是私有的：只存进对话记录，
+不显示在任何地方。经过 `speak` 的内容会出现在界面的对话区，并在对手下一个回合开始
+前被引用给对手。
+
+- 可选，且一个回合内可以调用多次。
+- **不会**结束回合；只有 `make_move` 和 `resign` 会。
+- `text` 上限为 `SPEAK_MAX_CHARS`（500）字符。超长的调用会以 `invalid_input` 被拒绝，
+  而不是被静默截断——模型得把话缩短，而不是悄无声息地丢掉半句。
+- `text` 中的空行会在界面上开启一个新气泡。整条内容在对话记录里仍是一条，对对手来说
+  也是一整段发言。
+- 回合已结束（`make_move` 或 `resign` 已执行）后调用会以 `illegal_state` 被拒绝。
+
+```json
+{"ok": true, "tool": "speak", "spoken": "Your king looks lonely over there.",
+ "message": "Said out loud. Your turn continues."}
+```
+
 ## make_move
 
 ```json

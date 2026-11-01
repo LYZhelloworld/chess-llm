@@ -14,12 +14,15 @@ logs/log_20260925_195646.log       追加写入，每行都带前缀
 每步之后从头重写，因此文件始终是一份合法、完整的棋谱。头部字段：`Event`、
 `Site`、`Date`、`Round`、`White`、`Black`、`WhiteKind`、`BlackKind`、
 `WhiteModel`、`BlackModel`、`Result`、`Termination`、`PlyCount`（若棋局不是从
-初始局面开始，还会加上 `FEN`/`SetUp`）。每个 Agent 在该 ply 的公开发言会作为着法
-注释附上，例如：
+初始局面开始，还会加上 `FEN`/`SetUp`）。每一方在自己走子之前说过的话会作为着法
+注释附上，由走这一着的那一方的对话历史推导：
 
 ```
 1. e4 { Let me check the legal moves first. | I will play e4. } 1... e5 2. Nf3 1/2-1/2
 ```
+
+只有该方**自己回合内**的发言才会落到这里。人类在对手思考时敲的那句话属于对话内容，
+但不是对手那一步的注释。
 
 ## 对局 JSON（`games/*.json`）
 
@@ -33,11 +36,13 @@ logs/log_20260925_195646.log       追加写入，每行都带前缀
   "black": {"kind": "llm", "profile": "openai", "model": "gpt-4o-mini", "label": ""},
   "moves_san": ["e4", "e5"],
   "moves_uci": ["e2e4", "e7e5"],
-  "white_chat_history": [],
+  "white_chat_history": [
+    {"role": "user", "content": "That is a bold pawn.", "spoken": true, "seq": 1, "ply": 1}
+  ],
   "black_chat_history": [
     {"role": "user", "content": "It is your turn. You play black. ..."},
-    {"role": "assistant", "content": "Checking my options.", "reasoning": "If I take on e4 ...", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "get_legal_moves", "arguments": "{}"}}]},
-    {"role": "tool", "tool_call_id": "call_1", "name": "get_legal_moves", "content": "{\n  \"ok\": true, ... }"}
+    {"role": "assistant", "content": "", "reasoning": "If I take on e4 ...", "seq": 2, "ply": 2, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "speak", "arguments": "{\"text\": \"Hold my rook.\"}"}}]},
+    {"role": "tool", "tool_call_id": "call_1", "name": "speak", "content": "{\n  \"ok\": true, ... }"}
   ],
   "result": {"winner": null, "reason": "repetition", "detail": "...", "pgn_result": "1/2-1/2"},
   "finished": true
@@ -50,12 +55,20 @@ logs/log_20260925_195646.log       追加写入，每行都带前缀
   `tool` 消息都会保存；系统提示不保存。
 - 任何对阵下都会写 `white_chat_history` 与 `black_chat_history` —— LLM 互弈时
   两者都有内容。
+- **发言不是独立字段。** 模型的发言是 assistant 消息上 `speak` 工具调用的 `text`
+  参数；人类的发言是带 `"spoken": true` 的 `user` 消息。没有单独的 talk 列表，
+  assistant 的 `content` 是永不展示的私有文本。
 - 当后端返回思维链时（`reasoning_content`、`reasoning`、`thinking`、`think`），
-  assistant 消息上会多一个 `reasoning` 字段，与 `content` 并列保存。发言只存在
-  这一处，没有单独的 talk 列表。
-- PGN 的着法注释和界面上的合并对话都由这些历史推导：一个 ply 映射到走它的那一方，
-  以及该方的第 n 个回合（一个回合从每条 `user` 消息开始）。
+  assistant 消息上会多一个 `reasoning` 字段，仅供排查。
+- 发言旁边会写三个记账字段，并在历史发回后端前被剥除：`seq` 把双方发言放进同一条
+  时间线（两份历史是各自独立的列表，对手思考时敲的那句话否则无处安放），`ply` 是
+  该发言归属的、从 1 开始的 ply（PGN 注释用的就是它），`spoken` 标记人类的 `user`
+  消息。见 `src/agent/loop.py` 的 `_for_backend()`。
+- 界面上的对话与 PGN 注释都由这两份历史推导，所以不会互相漂移：同一条发言同时喂给
+  两者。
 - 同时保留 `moves_uci` 与 `moves_san`，这样即使 SAN 有歧义也能重放着法。
+- 在 `speak` 工具出现之前保存的对局没有任何发言，打开后对话为空；不会回退去展示它们
+  的 `content`。
 
 ## 日志（`logs/*.log`）
 

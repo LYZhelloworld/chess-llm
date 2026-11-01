@@ -8,21 +8,40 @@ from src.game.storage import StoragePaths, load_game
 
 
 class FakeClient:
-    """Always answers with a single make_move tool call."""
+    """Answers with an optional `speak` call plus a single make_move call."""
 
     def __init__(self, move="Nf3", text="Attacking the centre."):
         self.move = move
         self.text = text
         self.calls = 0
+        self.seen_prompts = []
+        # Optional callback run while the "model" is thinking, so a test can
+        # type into the conversation mid-turn.
+        self.during = None
 
     def chat(self, messages, tools=None):
         self.calls += 1
-        return AssistantMessage(
-            content=self.text,
-            tool_calls=[
-                ToolCall(id=f"call_{self.calls}", name="make_move", arguments=json.dumps({"move": self.move}))
-            ],
+        self.seen_prompts.append(messages[-1]["content"] if messages else "")
+        if self.during is not None:
+            callback, self.during = self.during, None
+            callback()
+        calls = []
+        if self.text:
+            calls.append(
+                ToolCall(
+                    id=f"say_{self.calls}",
+                    name="speak",
+                    arguments=json.dumps({"text": self.text}),
+                )
+            )
+        calls.append(
+            ToolCall(
+                id=f"call_{self.calls}",
+                name="make_move",
+                arguments=json.dumps({"move": self.move}),
+            )
         )
+        return AssistantMessage(content="", tool_calls=calls)
 
     def reasoning_enabled(self) -> bool:
         return True
@@ -52,14 +71,21 @@ def test_llm_turn_moves_and_records_the_transcript(tmp_path):
     assert controller.state.moves_san == ["e4", "e5"]
     assert controller.state.comment_for_ply(1) == "Attacking the centre."
     said = controller.state.conversation()
-    assert said == [{"ply": 2, "side": "black", "content": "Attacking the centre.", "reasoning": ""}]
+    assert len(said) == 1
+    assert said[0]["side"] == "black"
+    assert said[0]["kind"] == "speak"
+    assert said[0]["text"] == "Attacking the centre."
+    assert said[0]["ply"] == 2
 
     saved = load_game(controller.state.game_id, paths)
     assert saved.moves_san == ["e4", "e5"]
     assert any(m["role"] == "tool" for m in saved.black_chat_history)
+    # The stamp survives a save/load round trip, so the conversation can be
+    # rebuilt in the same order after a reload.
+    assert saved.conversation()[0]["text"] == "Attacking the centre."
 
 
-def test_controller_surfaces_the_opponents_last_speech(tmp_path):
+def test_controller_surfaces_the_opponents_remarks_once(tmp_path):
     controller, _ = make_controller(
         tmp_path,
         white=PlayerSpec.llm("default", "m1"),
@@ -71,9 +97,104 @@ def test_controller_surfaces_the_opponents_last_speech(tmp_path):
     controller.run_llm_turn()
 
     # Black is to move; its opponent (white) just spoke.
-    assert controller._last_opponent_speech("black") == "Opening the centre."
+    assert controller._opponent_speech("black") == "Opening the centre."
+    # Delivered once: asking again must not repeat the same heckle forever.
+    assert controller._opponent_speech("black") is None
     # White has not yet heard anything from black.
-    assert controller._last_opponent_speech("white") is None
+    assert controller._opponent_speech("white") is None
+
+
+def test_a_human_remark_is_stored_and_handed_to_the_model_next_turn(tmp_path):
+    controller, paths = make_controller(tmp_path)
+
+    result = controller.say("white", "Your opening is pathetic.")
+    assert result["ok"] is True
+    assert controller.state.conversation()[0]["text"] == "Your opening is pathetic."
+
+    controller.submit_human_move("e4")
+    fake = FakeClient(move="e5", text="We will see.")
+    controller._clients["black"] = fake
+    controller.run_llm_turn()
+
+    prompt = fake.seen_prompts[0]
+    assert "Your opening is pathetic." in prompt
+    assert load_game(controller.state.game_id, paths).conversation()[0]["text"] == (
+        "Your opening is pathetic."
+    )
+
+
+def test_a_remark_made_while_the_model_thinks_waits_for_the_next_turn(tmp_path):
+    """A turn reads its prompt once; typing later must not interrupt it."""
+
+    controller, _ = make_controller(tmp_path)
+    controller.submit_human_move("e4")
+    fake = FakeClient(move="e5")
+    fake.during = lambda: controller.say("white", "Too slow.")
+    controller._clients["black"] = fake
+
+    controller.run_llm_turn()
+
+    assert "Too slow." not in fake.seen_prompts[0]
+    # It is not lost: the next prompt of that side carries it.
+    controller.submit_human_move("Nf3")
+    second = FakeClient(move="Nc6")
+    controller._clients["black"] = second
+    controller.run_llm_turn()
+    assert "Too slow." in second.seen_prompts[0]
+
+
+def test_only_a_human_seat_can_speak(tmp_path):
+    controller, _ = make_controller(tmp_path)  # white human, black LLM
+
+    refused = controller.say("black", "I am a model.")
+    assert refused["ok"] is False
+    assert refused["error"]["category"] == "illegal_state"
+    assert controller.state.conversation() == []
+
+
+def test_speaking_is_refused_after_the_game_ends(tmp_path):
+    controller, _ = make_controller(tmp_path)
+    controller.resign("white", "done")
+
+    result = controller.say("white", "Good game.")
+
+    assert result["ok"] is False
+    assert result["error"]["category"] == "illegal_state"
+
+
+def test_speaking_rejects_empty_and_over_long_text(tmp_path):
+    controller, _ = make_controller(tmp_path)
+
+    assert controller.say("white", "   ")["error"]["category"] == "invalid_input"
+    assert controller.say("white", "x" * 501)["error"]["category"] == "invalid_input"
+    assert controller.state.conversation() == []
+
+
+def test_hot_seat_speech_belongs_to_the_side_to_move(tmp_path):
+    controller, _ = make_controller(
+        tmp_path, white=PlayerSpec.human(), black=PlayerSpec.human()
+    )
+
+    assert controller.say_side == "white"
+    assert controller.say("white", "Opening.")["ok"] is True
+    refused = controller.say("black", "Wait your turn.")
+    assert refused["ok"] is False
+    assert "white" in refused["error"]["message"]
+
+    controller.submit_human_move("e4")
+    assert controller.say_side == "black"
+    assert controller.say("black", "Fine.")["ok"] is True
+
+
+def test_an_llm_only_game_offers_no_place_to_speak(tmp_path):
+    controller, _ = make_controller(
+        tmp_path,
+        white=PlayerSpec.llm("default", "m1"),
+        black=PlayerSpec.llm("default", "m2"),
+    )
+
+    assert controller.say_side is None
+    assert controller.view()["say_side"] is None
 
 
 def test_checkmate_finishes_and_saves_the_game(tmp_path):

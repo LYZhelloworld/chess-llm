@@ -11,13 +11,14 @@ SYSTEM_PROMPT = """You are a grandmaster-strength chess agent playing the {side}
 real game.
 
 # How you communicate
-- You may write normal text before or between tool calls. That text is PUBLIC: \
-it appears on the game screen for the audience, the operator and the opponent's \
-operator to read. Trash talk, threats and bluffs are allowed, but never reveal \
-a concrete plan that you are not willing to see countered.
-- Your private reasoning (the step-by-step thinking you do before writing public \
-text) is NOT shown to anyone. Think as deeply as you like in private; keep the \
-public text short.
+- Plain text you write is PRIVATE. Nobody reads it: not the audience, not the \
+operator, not your opponent. Use it to think, to draft a line, to plan.
+- The only way to say something out loud is the `speak` tool. What you pass to \
+it appears on the game screen and is quoted to your opponent before their next \
+turn. Trash talk, threats and bluffs are allowed, but never reveal a concrete \
+plan that you are not willing to see countered.
+- `speak` is optional and may be called several times in a turn. It does not \
+end your turn; only `make_move` and `resign` do.
 - Never claim you made a move unless the `make_move` tool confirmed it.
 
 # How you play
@@ -65,8 +66,8 @@ Legal moves (SAN - `make_move` accepts exactly one of these):
 {legal_moves}
 
 {opponent_section}
-Think privately, say something brief if you want to, then play your move with \
-`make_move`.
+Think privately, call `speak` if you want your opponent to hear something, then \
+play your move with `make_move`.
 """
 
 NUDGE_NO_MOVE = (
@@ -93,9 +94,10 @@ def system_prompt(side: str) -> str:
 def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -> str:
     """Build the per-turn user message from the live engine.
 
-    ``opponent_speech`` is the opponent's most recent public remark, surfaced so
-    the agent can respond to trash talk or threats. ``material`` and the inline
-    legal-move list are computed from the board.
+    ``opponent_speech`` is everything the opponent has said since this side last
+    moved - their ``speak`` calls, or the operator's typed remarks - surfaced so
+    the agent can answer it. ``material`` and the inline legal-move list are
+    computed from the board.
     """
 
     legal = engine.legal_moves_san()
@@ -105,7 +107,11 @@ def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -
         legal_block = "(no legal moves - the position is checkmate or stalemate)"
 
     if opponent_speech and opponent_speech.strip():
-        opponent_section = f'Opponent\'s last spoken remark: "{opponent_speech.strip()}"'
+        quoted = "\n".join(
+            f"> {line}" if line.strip() else ">"
+            for line in opponent_speech.strip().splitlines()
+        )
+        opponent_section = "Opponent's remarks since your last turn:\n" + quoted
     else:
         opponent_section = "Opponent has not spoken yet this game."
 

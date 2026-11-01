@@ -21,6 +21,24 @@ def make_paths(tmp_path):
     return StoragePaths(games_dir=tmp_path / "games", logs_dir=tmp_path / "logs").ensure()
 
 
+def _speak_message(text, seq, ply):
+    """A stored assistant message that said one thing out loud."""
+
+    return {
+        "role": "assistant",
+        "content": "",
+        "seq": seq,
+        "ply": ply,
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "speak", "arguments": json.dumps({"text": text})},
+            }
+        ],
+    }
+
+
 def make_state():
     state = GameState(
         game_id=new_game_id(datetime(2026, 9, 25, 19, 56, 46)),
@@ -29,10 +47,10 @@ def make_state():
         moves_san=["e4", "e5", "Nf3"],
         moves_uci=["e2e4", "e7e5", "g1f3"],
     )
-    # Remarks live in the chat history; the PGN comment is derived from it.
+    # Remarks live in the chat history; the PGN comment is derived from them.
     state.white_chat_history = [
         {"role": "user", "content": "It is your turn."},
-        {"role": "assistant", "content": "Let us open with e4."},
+        _speak_message("Let us open with e4.", seq=1, ply=1),
     ]
     state.black_chat_history = [{"role": "user", "content": "It is your turn."}]
     return state
@@ -127,5 +145,8 @@ def test_json_record_is_serialisable(tmp_path):
     save_game(state, paths)
     raw = json.loads(paths.json_path(state.game_id).read_text(encoding="utf-8"))
     assert raw["mode"] == "human-vs-llm"
-    assert raw["white_chat_history"][1]["content"] == "Let us open with e4."
+    # A remark is the argument of a speak call, not the assistant's prose.
+    spoken = raw["white_chat_history"][1]["tool_calls"][0]["function"]
+    assert spoken["name"] == "speak"
+    assert json.loads(spoken["arguments"])["text"] == "Let us open with e4."
     assert raw["black_chat_history"][0]["content"] == "It is your turn."

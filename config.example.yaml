@@ -29,11 +29,14 @@ llm_profiles:
     retry_backoff: 2.0
     # Chain of thought of reasoning models: keep it in the history sent back to
     # the model. auto = try it and stop if the backend refuses; on = always;
-    # off = never (it is still stored in the game JSON and shown in the UI).
+    # off = never (it is still stored in the game JSON for debugging only -
+    # reasoning is not shown in the UI).
     reasoning: auto
-    # Stream the reply token by token to the UI for a live "writing" effect.
-    # auto = stream when the backend supports it, fall back to a full reply on
-    # error; on = always stream; off = never stream.
+    # Stream the reply token by token. auto = stream when the backend supports
+    # it, fall back to a full reply on error; on = always stream; off = never
+    # stream. Public speech goes through the `speak` tool, so nothing the model
+    # writes as plain text is displayed either way; the deltas only keep the
+    # "typing" placeholder alive.
     stream: auto
 
   # Example profiles: choose one of these in the web UI when starting a game.

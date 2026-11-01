@@ -11,7 +11,7 @@
 [ ...     ] memory.window(loop.context_turns)        <- 历史记录的滑动窗口
 ```
 
-系统提示涵盖：所执的一方、公开文本会展示给观众而私有推理不会、工具用法、硬性规则
+系统提示涵盖：所执的一方、普通文本是私有的而 `speak` 才是公开的、工具用法、硬性规则
 （`make_move` 每次一步、只接受 `get_legal_moves` 返回的 SAN、失败时读
 `error.category`），以及回合预算耗尽会随机走一步。
 
@@ -47,7 +47,7 @@ Opponent has not spoken yet this game.
 
 合法着法列表和每一回合的子力对比都**内联**给出，模型通常不需要再调
 `get_legal_moves`；但当列表过期或需要核对时，该工具（以及 `get_board` /
-`get_board_ascii`）依然可用。对手最近一次的公开发言也会附上，方便 Agent 接话。
+`get_board_ascii`）依然可用。对手自本方上次行动以来的发言也会附上，方便 Agent 接话。
 
 ## 2. 循环
 
@@ -89,33 +89,41 @@ for exchange in 1 .. loop.max_tool_turns（默认 20）:
 
 ## 4. 桌上发言
 
-assistant 以普通文本写下的所有内容会：
+模型的发言只有通过 `speak` 工具才能到达任何人。它写下的普通文本——包括思维链——都是
+私有的：留在对话记录里供排查和模型自己回忆，不展示在任何地方。
 
-- 作为 `llm_message` 事件发出，
-- 保存在该方的对话历史里（不另外存任何东西：没有单独的 talk 列表），
-- 作为着法注释写进 PGN —— 由这份历史推导得出。
+每一次被接受的 `speak` 调用会：
 
-思维链同样会被捕获。如果后端把它放在 `reasoning_content`（或 `reasoning` /
-`thinking` / `think`）里，就会存到 assistant 消息的 `reasoning` 字段，并在界面上
-以可折叠块展示。profile 的 `reasoning` 字段决定它是否随历史一起回传：
-`auto`（默认）会回传，一旦后端拒绝请求就不再回传；`on` 始终回传；`off` 从不回传。
-`auto` 模式下被拒绝的请求会不带思维链重试一次，重试也失败才按常规退化为随机走子。
+- 作为 `say` 事件发出，
+- 作为一条普通的 assistant `tool_calls` 消息写进该方的对话历史，因此不需要额外存储，
+- 当该方走出它之前的那一步时，成为那一着的 PGN 注释。
 
-公开文本**会**注入对手的上下文。`GameController.run_llm_turn` 会把对手最近一次的
-公开发言（对方历史里最后一条非空的 assistant 消息）以 "Opponent's last spoken
-remark: ..." 的形式前置到回合提示中。同一回合内的发言尚不可用；若对手一直没说话，
-则显示 "Opponent has not spoken yet this game."。
+思维链从 `reasoning_content`（或 `reasoning` / `thinking` / `think`）中捕获，存到
+assistant 消息的 `reasoning` 字段。profile 的 `reasoning` 字段决定它是否随历史一起
+回传：`auto`（默认）会回传，一旦后端拒绝请求就不再回传；`on` 始终回传；`off` 从不
+回传。`auto` 模式下被拒绝的请求会不带思维链重试一次，重试也失败才按常规退化为随机
+走子。思维链永不展示。
+
+发言**会**注入对手的上下文。`GameController` 会收集对手自本方上次行动以来说过的一切
+——对手的 `speak` 调用，或操作者敲进去的话——并以
+`Opponent's remarks since your last turn:` 的形式放进回合提示。每条发言只投递一次：
+构造提示时水位就会推进，因此重复的一句不会在之后每个回合反复出现。对手一直没说话时
+显示 "Opponent has not spoken yet this game."。
+
+人类随时可以输入，包括对手正在思考的时候。发言会立刻存储并显示，但会在对手**下一个**
+回合开始时才进入提示——已经跑起来的回合早已构造好提示了。
 
 ## 5. 发出的事件
 
 | 类型 | 载荷 |
 | --- | --- |
 | `user_prompt` | 发给模型的回合提示 |
-| `llm_message` | 模型写下的公开文本，以及它的思维链 |
-| `llm_delta` | `llm_message` 的流式片段（content 及/或推理）；UI 就地渲染 |
+| `llm_message` | 模型的私有文本与思维链——仅供排查，不展示 |
+| `llm_delta` | `llm_message` 的流式片段；界面不再据此渲染任何内容 |
 | `tool_call` | 工具名 + 原始参数 |
 | `tool_result` | 工具返回的 JSON |
+| `say` | 一条被接受的 `speak` 发言（人类输入的那句也由控制器发出） |
 | `nudge` | "你还没走子"提醒 |
 | `fallback_move` | 替模型随机走的那一步 |
 | `llm_error` | 后端故障 |
-| `talk` / `move` / `game_over` | 由控制器发出 |
+| `move` / `game_over` | 由控制器发出 |

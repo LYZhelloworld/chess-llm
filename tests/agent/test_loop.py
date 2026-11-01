@@ -35,7 +35,7 @@ def test_agent_plays_a_move_after_exploring():
     engine = ChessEngine()
     memory = ChatMemory()
     client = ScriptedClient(
-        text_only("Let me look at the legal moves first."),
+        tool_call("speak", '{"text": "Let me look at the board first."}'),
         tool_call("get_legal_moves", "{}"),
         tool_call("make_move", '{"move": "e4"}', content="I take the centre."),
     )
@@ -44,11 +44,106 @@ def test_agent_plays_a_move_after_exploring():
     assert outcome.move_san == "e4"
     assert outcome.resigned is False
     assert outcome.fallback_random is False
-    assert outcome.spoken == ["Let me look at the legal moves first.", "I take the centre."]
+    # Only what went through `speak` is public; the plain text on the move
+    # message stays private.
+    assert outcome.spoken == ["Let me look at the board first."]
     assert engine.ply == 1
 
     roles = [m["role"] for m in memory.messages]
-    assert roles == ["user", "assistant", "user", "assistant", "tool", "assistant", "tool"]
+    assert roles == ["user", "assistant", "tool", "assistant", "tool", "assistant", "tool"]
+
+
+def test_plain_model_text_is_never_spoken_and_emits_no_say_event():
+    """The old behaviour - content shown in the chat - is what this replaces."""
+
+    engine = ChessEngine()
+    memory = ChatMemory()
+    events = []
+    client = ScriptedClient(
+        text_only("I am thinking out loud here."),
+        tool_call("make_move", '{"move": "d4"}', content="And another line nobody sees."),
+    )
+
+    outcome = run_llm_turn(
+        client, engine, "white", memory, AppConfig(), emit=events.append, rng=random.Random(0)
+    )
+
+    assert outcome.spoken == []
+    assert not [event for event in events if event["type"] == "say"]
+
+
+def test_speak_emits_a_say_event_and_a_transcript_stamp():
+    engine = ChessEngine()
+    memory = ChatMemory()
+    events = []
+    stamped = []
+    client = ScriptedClient(
+        tool_call("speak", '{"text": "The centre is mine."}'),
+        tool_call("make_move", '{"move": "e4"}'),
+    )
+
+    outcome = run_llm_turn(
+        client,
+        engine,
+        "white",
+        memory,
+        AppConfig(),
+        emit=events.append,
+        rng=random.Random(0),
+        stamp=lambda message, ply: stamped.append((message, ply)),
+    )
+
+    assert outcome.spoken == ["The centre is mine."]
+    assert {"type": "say", "side": "white", "text": "The centre is mine."} in events
+    assert len(stamped) == 1
+    message, ply = stamped[0]
+    assert ply == 1, "the remark belongs to the move it preceded"
+    assert message["tool_calls"][0]["function"]["name"] == "speak"
+
+
+def test_a_rejected_speak_is_not_announced():
+    engine = ChessEngine()
+    memory = ChatMemory()
+    events = []
+    client = ScriptedClient(
+        tool_call("speak", '{"text": ""}'),
+        tool_call("make_move", '{"move": "e4"}'),
+    )
+
+    outcome = run_llm_turn(
+        client, engine, "white", memory, AppConfig(), emit=events.append, rng=random.Random(0)
+    )
+
+    assert outcome.spoken == []
+    assert not [event for event in events if event["type"] == "say"]
+
+
+def test_reply_stamps_never_reach_the_backend():
+    """`seq` / `ply` / `spoken` are ours; an API would reject them."""
+
+    engine = ChessEngine()
+    memory = ChatMemory()
+    client = ScriptedClient(
+        tool_call("speak", '{"text": "Hello."}'),
+        tool_call("make_move", '{"move": "e4"}'),
+    )
+    run_llm_turn(
+        client,
+        engine,
+        "white",
+        memory,
+        AppConfig(),
+        rng=random.Random(0),
+        stamp=lambda message, ply: message.update({"seq": 7, "ply": ply}),
+    )
+
+    # Stored, so the conversation can be rebuilt...
+    assert any(message.get("seq") == 7 for message in memory.messages)
+    # ...but never sent: a backend would reject unknown message fields.
+    for message in memory.window(10):
+        assert "seq" not in message
+        assert "ply" not in message
+        assert "spoken" not in message
 
 
 def test_opponent_speech_and_prompt_extras_reach_the_turn_message():
@@ -76,7 +171,7 @@ def test_opponent_speech_and_prompt_extras_reach_the_turn_message():
 
 
 
-def test_agent_is_nudged_when_it_only_talks():
+def test_agent_is_nudged_when_it_never_calls_a_tool():
     engine = ChessEngine()
     memory = ChatMemory()
     client = ScriptedClient(*[text_only(f"thinking {i}") for i in range(3)])

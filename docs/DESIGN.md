@@ -52,7 +52,7 @@ module except the agent loop.
 | `src/tools/executor.py` | runs one tool call, always answers with JSON |
 | `src/agent/llm_client.py` | OpenAI-compatible client, retries, `AssistantMessage` |
 | `src/agent/loop.py` | the turn loop, chat memory and the sliding context window |
-| `src/game/state.py` | serialisable `GameState` / `PlayerSpec` |
+| `src/game/state.py` | serialisable `GameState` / `PlayerSpec`, the remark timeline |
 | `src/game/controller.py` | whose turn it is, post-move bookkeeping, saving |
 | `src/game/storage.py` | PGN + JSON writers, log setup, game loading |
 | `src/ui/server.py` | REST endpoints and the SSE event stream |
@@ -76,14 +76,24 @@ module except the agent loop.
 - **OpenAI-compatible only.** One code path (`chat.completions` + `tools`)
   covers OpenAI, DeepSeek, Moonshot, vLLM, Ollama and anything else that speaks
   that protocol; switching providers is a `config.yaml` profile.
-- **Table talk is injected as context.** Anything the model writes as normal
-  text is shown in the web UI, stored in the game JSON / PGN comments, *and*
-  forwarded to the opponent as `Opponent's last spoken remark` at the start of
-  the opponent's next turn (see `docs/LLM-LOOP.md`). This lets agents respond to
-  trash talk, at the cost of exposing them to prompt injection from the other side.
+- **Only `speak` is public.** A model's plain text is private: stored in the
+  transcript for its own memory and for debugging, shown to nobody. Everything
+  the audience or the opponent hears goes through the `speak` tool, which is
+  free (it does not end the turn) and limited to 500 characters per call. This
+  keeps one channel for deliberate speech instead of making every token the
+  model thinks out loud into a broadcast.
+- **Humans get the same channel.** The UI has a message box; what is typed there
+  is stored as a remark of the human seat, shown in the conversation, and quoted
+  to the opponent in their next turn prompt. A human may speak at any moment -
+  including while the model is thinking - but never into the middle of a turn
+  that has already built its prompt.
+- **Table talk is injected as context.** Opponent remarks are forwarded as
+  `Opponent's remarks since your last turn` at the start of the next turn (see
+  `docs/LLM-LOOP.md`). This lets agents respond to trash talk, at the cost of
+  exposing them to prompt injection from the other side.
 - **Chain of thought is prompt-level.** The system prompt asks the model to
-  reason privately and keep public text short; no vendor-specific
-  `reasoning_effort` parameter is sent, so the same code works everywhere.
+  reason privately; no vendor-specific `reasoning_effort` parameter is sent, so
+  the same code works everywhere. The reasoning is stored but never displayed.
 - **`try_make_move` is a sandbox.** It works on a copy of the board (or on a
   caller-supplied FEN) and never mutates the live game.
 - **`make_move` is strict.** Only strings returned by `get_legal_moves` are
@@ -103,8 +113,12 @@ module except the agent loop.
 
 - `GET /` - single page app.
 - `GET /api/state` - full snapshot: FEN, ASCII, legal moves, move list, both
-  chat histories, the merged `conversation` shown in the UI, result.
+  chat histories, the merged `conversation` shown in the UI, `say_side` (the
+  seat allowed to type, `null` when nobody may), result.
 - `POST /api/move` - `{ "move": "Nf3" }` (SAN or UCI).
+- `POST /api/say` - `{ "side": "white", "text": "..." }` (side optional; the
+  server falls back to the seat that may speak). Rejected with `400` unless that
+  seat is human, and - in a hot-seat game - is the side to move.
 - `POST /api/resign` - `{ "side": "white", "reason": "..." }` (reason is
   optional). Rejected with `400` unless the seat is human and - in a hot-seat
   game - is the side to move.
@@ -114,15 +128,24 @@ module except the agent loop.
 - `GET /api/profiles` - every LLM profile from `config.yaml` and whether it is
   configured (has an API key), used to populate the "New game" / "Load" dropdowns.
 - `GET /api/events` - server-sent events (`turn_start`, `tool_call`,
-  `tool_result`, `llm_message`, `llm_delta`, `move`, `game_over`, ...).
-  Streaming events (`llm_delta`) update the UI in place; other events trigger a
-  state refresh. Deltas arrive per token, far faster than a page can usefully
-  repaint, so the browser merges them and paints the live bubble at most once
-  per `LIVE_PAINT_MS` (16 ms) from a `requestAnimationFrame` callback - a paint
-  per frame on a 60 Hz display. The ceiling is what matters: paint rate is then
-  independent of how fast the backend streams. A timer would not do: 20 ms of
-  `setTimeout` measures 27 ms median on Windows, and frames are aligned to the
-  display anyway.
+  `tool_result`, `say`, `llm_message`, `llm_delta`, `move`, `game_over`, ...).
+  The page repaints from `GET /api/state` on the events that change what is
+  stored (`say`, `move`, `state`, `game_over`, ...); the streaming events
+  (`llm_delta`) carry text nobody displays any more and are ignored. Deltas are
+  still sent because they are the only sign a backend is producing tokens while
+  a turn is in flight.
+
+The layout is two columns: the board on the left, and on the right the game card
+above the conversation. Narrow windows stack the three blocks and let the page
+scroll, because shrinking the type far enough to fit them side by side makes it
+unreadable. The conversation is an instant-messenger style thread - one bubble
+per paragraph of a remark - with the "local" side on the right: the human seat
+when exactly one person is at the board, white otherwise (LLM vs LLM and
+hot-seat, where nobody is the viewer). A typing placeholder sits where the side
+to move is a model. In a hot-seat game the same screen speaks for the side to
+move, so that seat is the only one allowed to type - and the bubbles are
+labelled `White` / `Black`, because two seats sharing one screen cannot both be
+"Human".
 
 `--port` is the only part of the bind the command line controls; the address is
 fixed to `127.0.0.1`. The `local_only` middleware (`src/ui/server.py`)

@@ -2,14 +2,33 @@
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import chess
 
-from src.agent.llm_client import REASONING_KEY
 from src.config import HUMAN, LLM, WHITE, BLACK
+from src.tools.schema import SPEAK_MAX_CHARS
+
+# Bookkeeping carried by a transcript message and stripped again before the
+# history is sent to a backend (see ChatMemory.window):
+#
+# - ``seq`` orders everything said by both sides on one timeline. The two chat
+#   histories are separate lists, so without a shared counter a remark made
+#   while the opponent was thinking could not be placed after the one it
+#   followed.
+# - ``ply`` is the 1-based ply the remark belongs to, i.e. the move the speaker
+#   was about to play. It is what the PGN comment is built from.
+# - ``spoken`` marks a ``user`` message as a human's public remark. The ``user``
+#   messages of an LLM seat are turn prompts, not speech.
+SEQ_KEY = "seq"
+PLY_KEY = "ply"
+SPOKEN_KEY = "spoken"
+
+_PARAGRAPH_RE = re.compile(r"\n\s*\n")
 
 
 @dataclass
@@ -71,6 +90,9 @@ class GameState:
     black_chat_history: List[Dict[str, Any]] = field(default_factory=list)
     result: Optional[Dict[str, Any]] = None
     finished: bool = False
+    # Counter behind SEQ_KEY; derived from the histories on first use, so it is
+    # not persisted and a loaded game simply continues where it left off.
+    _seq: Optional[int] = field(default=None, init=False, repr=False)
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -82,6 +104,21 @@ class GameState:
     def player(self, side: str) -> PlayerSpec:
         return self.white if side == WHITE else self.black
 
+    def player_name(self, side: str) -> str:
+        """How one seat is labelled in the UI.
+
+        ``PlayerSpec.display_name`` is fine unless both seats are human: there
+        the generic "Human" makes white and black indistinguishable in the
+        conversation, so each seat is named after its colour instead.
+        """
+
+        spec = self.player(side)
+        if spec.label:
+            return spec.label
+        if spec.kind != LLM and not self.white.is_llm and not self.black.is_llm:
+            return side.capitalize()
+        return spec.display_name
+
     def chat(self, side: str) -> List[Dict[str, Any]]:
         return self.white_chat_history if side == WHITE else self.black_chat_history
 
@@ -91,56 +128,79 @@ class GameState:
         else:
             self.black_chat_history = messages
 
-    def _turn_for_ply(self, ply: int) -> Tuple[str, int]:
-        """Map a 0-based ply index to the side that played it and its turn index."""
+    # ------------------------------------------------------------------ remarks
+    def next_seq(self) -> int:
+        """Next slot on the shared "who said what, when" timeline."""
 
-        side = WHITE if ply % 2 == 0 else BLACK
-        return side, ply // 2
+        if self._seq is None:
+            self._seq = (
+                max(
+                    (
+                        int(message.get(SEQ_KEY) or 0)
+                        for side in (WHITE, BLACK)
+                        for message in self.chat(side)
+                    ),
+                    default=0,
+                )
+                + 1
+            )
+        value = self._seq
+        self._seq += 1
+        return value
 
-    def comment_for_ply(self, ply: int) -> str:
-        """Public remarks of the side that played ``ply`` (0-based)."""
+    def stamp(self, message: Dict[str, Any], ply: int) -> Dict[str, Any]:
+        """Pin a transcript message to the shared timeline and to a ply."""
 
-        side, index = self._turn_for_ply(ply)
-        turns = chat_turns(self.chat(side))
-        if index >= len(turns):
-            return ""
-        parts = [
-            (message.get("content") or "").strip()
-            for message in turns[index]
-            if message.get("role") == "assistant"
-        ]
-        return " | ".join(part for part in parts if part)
+        message[SEQ_KEY] = self.next_seq()
+        message[PLY_KEY] = ply
+        return message
 
-    def conversation(self) -> List[Dict[str, Any]]:
-        """What both agents said, interleaved in the order it was said.
+    def speak(self, side: str, text: str, ply: int) -> Dict[str, Any]:
+        """Record a human's public remark in that side's own history.
 
-        One entry per move: the several assistant messages of a single turn
-        (typically one that calls a tool, one that plays the move) are merged
-        and separated by a Markdown horizontal rule, so the UI shows one box
-        per move instead of one per message. Tool calls, tool results and
-        prompts are left out entirely.
+        A human seat has no model behind it, so the ``user`` role is free to be
+        the speaker; ``SPOKEN_KEY`` is what tells it apart from a turn prompt.
         """
 
-        white_turns = chat_turns(self.white_chat_history)
-        black_turns = chat_turns(self.black_chat_history)
-        entries: List[Dict[str, Any]] = []
-        for index in range(max(len(white_turns), len(black_turns))):
-            for side, turns in ((WHITE, white_turns), (BLACK, black_turns)):
-                if index >= len(turns):
-                    continue
-                ply = index * 2 + (1 if side == WHITE else 2)
-                said = merge_assistant_speech(turns[index])
-                if said is None:
-                    continue
-                entries.append(
-                    {
-                        "ply": ply,
-                        "side": side,
-                        "content": said["content"],
-                        REASONING_KEY: said[REASONING_KEY],
-                    }
-                )
+        message: Dict[str, Any] = {"role": "user", "content": text, SPOKEN_KEY: True}
+        self.stamp(message, ply)
+        self.chat(side).append(message)
+        return message
+
+    def remarks(self, side: str) -> List[Dict[str, Any]]:
+        """Every public remark of one side, in the order it was made."""
+
+        return speech_entries(self.chat(side), side)
+
+    def conversation(self) -> List[Dict[str, Any]]:
+        """Both sides' public remarks as one timeline, one paragraph per entry.
+
+        A remark whose text has blank lines in it becomes several entries: the
+        UI shows one bubble per paragraph, and the operator reads a paragraph
+        as one message. Ordering comes from ``seq`` - see the note at the top of
+        this module - so a human interjecting in the middle of a model's turn
+        keeps its place.
+        """
+
+        entries = self.remarks(WHITE) + self.remarks(BLACK)
+        entries.sort(key=lambda entry: entry[SEQ_KEY])
         return entries
+
+    def comment_for_ply(self, ply: int) -> str:
+        """Public remarks of the side that played ``ply`` (0-based).
+
+        Only what was said during that side's own turn counts: a remark the
+        human makes while the opponent is thinking belongs to the opponent's
+        ply, and the opponent is not the one who said it.
+        """
+
+        side = WHITE if ply % 2 == 0 else BLACK
+        spoken = [
+            entry["text"]
+            for entry in self.remarks(side)
+            if entry.get(PLY_KEY) == ply + 1
+        ]
+        return " | ".join(spoken)
 
     # ----------------------------------------------------------- serialization
     def to_dict(self) -> Dict[str, Any]:
@@ -181,49 +241,74 @@ class GameState:
         return state
 
 
-def merge_assistant_speech(
-    turn: List[Dict[str, Any]], separator: str = "\n\n---\n\n"
-) -> Optional[Dict[str, Any]]:
-    """Fold every assistant message of one turn into a single spoken text.
+def speech_entries(
+    messages: List[Dict[str, Any]], side: str
+) -> List[Dict[str, Any]]:
+    """Pull the public remarks out of one chat history, in order.
 
-    Returns ``None`` when the model said nothing at all, so the caller can skip
-    the entry. Repeated identical remarks are dropped - some models echo the
-    same sentence on the tool-calling message and on the move message.
+    Two sources, one shape: a human's remark is a ``user`` message flagged with
+    ``SPOKEN_KEY``, a model's is the text argument of a ``speak`` tool call on
+    an assistant message. Everything else in the history - turn prompts,
+    nudges, tool results, the model's private prose - is not speech.
     """
 
-    contents: List[str] = []
-    reasonings: List[str] = []
-    for message in turn:
-        if message.get("role") != "assistant":
-            continue
-        content = (message.get("content") or "").strip()
-        reasoning = (message.get(REASONING_KEY) or "").strip()
-        if content and content not in contents:
-            contents.append(content)
-        if reasoning and reasoning not in reasonings:
-            reasonings.append(reasoning)
-    if not contents and not reasonings:
-        return None
-    return {
-        "content": separator.join(contents),
-        REASONING_KEY: separator.join(reasonings),
-    }
-
-
-def chat_turns(messages: List[Dict[str, Any]]) -> List[List[Dict[str, Any]]]:
-    """Split a flat history into turns; a turn starts at every user message.
-
-    Mirrors ``ChatMemory.turns()``: it is what lets a ply be mapped back to the
-    exchange that produced it, so no separate remark list has to be stored.
-    """
-
-    turns: List[List[Dict[str, Any]]] = []
+    entries: List[Dict[str, Any]] = []
     for message in messages:
-        if message.get("role") == "user" or not turns:
-            turns.append([message])
+        seq = int(message.get(SEQ_KEY) or 0)
+        ply = message.get(PLY_KEY)
+        if message.get(SPOKEN_KEY):
+            texts: List[str] = [message.get("content") or ""]
+            kind = "say"
+        elif message.get("role") == "assistant":
+            texts = [
+                text
+                for text in (
+                    _spoken_text(call) for call in message.get("tool_calls") or []
+                )
+                if text
+            ]
+            kind = "speak"
         else:
-            turns[-1].append(message)
-    return turns
+            continue
+        for text in texts:
+            for paragraph in paragraphs_of(text):
+                entries.append(
+                    {
+                        "side": side,
+                        "kind": kind,
+                        "text": paragraph,
+                        SEQ_KEY: seq,
+                        PLY_KEY: ply,
+                    }
+                )
+    return entries
+
+
+def _spoken_text(call: Dict[str, Any]) -> Optional[str]:
+    """The text of one ``speak`` call, or ``None`` when it is not one."""
+
+    function = call.get("function") or {}
+    if function.get("name") != "speak":
+        return None
+    try:
+        arguments = json.loads(function.get("arguments") or "{}")
+    except (TypeError, ValueError):
+        return None
+    text = arguments.get("text") if isinstance(arguments, dict) else None
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    # A rejected call is still in the transcript; it must not show up as speech
+    # either, or the rebuilt conversation would display words the tool refused.
+    if not text or len(text) > SPEAK_MAX_CHARS:
+        return None
+    return text
+
+
+def paragraphs_of(text: str) -> List[str]:
+    """Split one remark into the paragraphs the UI shows as separate bubbles."""
+
+    return [block.strip() for block in _PARAGRAPH_RE.split(text or "") if block.strip()]
 
 
 def new_game_id() -> str:

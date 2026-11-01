@@ -41,6 +41,10 @@ python tests/fake_llm_server.py --port 8099   # stub backend for local smoke tes
    exit.
 7. **Persistence is append-safe.** PGN and JSON are rewritten in full after
    every move; logs are appended. Keep it that way.
+8. **Only `speak` is public.** A model's `content` is private text: never render
+   it, never treat it as a remark. Public speech is a `speak` tool call (or a
+   `spoken` `user` message from a human seat), and both the conversation and the
+   PGN comments are derived from the chat histories - never from a second store.
 
 ## Where to make a change
 
@@ -48,6 +52,7 @@ python tests/fake_llm_server.py --port 8099   # stub backend for local smoke tes
 | --- | --- |
 | New or reworded prompt | `src/prompts.py` |
 | New tool | `src/tools/schema.py` + `_tool_*` in `src/tools/executor.py` |
+| How a remark is stored or ordered | `src/game/state.py` |
 | New draw condition | `src/engine/rules.py` + `DrawConfig` in `src/config.py` |
 | Loop behaviour (turns, nudges, fallback) | `src/agent/loop.py` |
 | Turn order, post-move bookkeeping | `src/game/controller.py` |

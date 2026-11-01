@@ -131,9 +131,8 @@ module except the agent loop.
   `tool_result`, `say`, `llm_message`, `llm_delta`, `move`, `game_over`, ...).
   The page repaints from `GET /api/state` on the events that change what is
   stored (`say`, `move`, `state`, `game_over`, ...); the streaming events
-  (`llm_delta`) carry text nobody displays any more and are ignored. Deltas are
-  still sent because they are the only sign a backend is producing tokens while
-  a turn is in flight.
+  (`llm_delta`) carry text nobody displays any more and are ignored. They are
+  still emitted so an event-stream consumer can see a turn making progress.
 
 The layout is two columns: the board on the left, and on the right the game card
 above the conversation. Narrow windows stack the three blocks and let the page
@@ -141,8 +140,10 @@ scroll, because shrinking the type far enough to fit them side by side makes it
 unreadable. The conversation is an instant-messenger style thread - one bubble
 per paragraph of a remark - with the "local" side on the right: the human seat
 when exactly one person is at the board, white otherwise (LLM vs LLM and
-hot-seat, where nobody is the viewer). A typing placeholder sits where the side
-to move is a model. In a hot-seat game the same screen speaks for the side to
+hot-seat, where nobody is the viewer). The thread holds remarks and nothing
+else: no typing indicator, because whether a model is thinking is already
+answered by the status line in the game card, and a bubble would read as if it
+had spoken. In a hot-seat game the same screen speaks for the side to
 move, so that seat is the only one allowed to type - and the bubbles are
 labelled `White` / `Black`, because two seats sharing one screen cannot both be
 "Human".

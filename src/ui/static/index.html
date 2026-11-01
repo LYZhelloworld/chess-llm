@@ -173,15 +173,6 @@
     color: var(--muted); margin-bottom: .1875rem;
   }
   .bubble .md { line-height: 1.45; }
-  /* "the model is writing" placeholder, shown while an LLM seat is to move */
-  .typing { display: inline-flex; gap: .1875rem; align-items: center; padding: .125rem 0; }
-  .typing span {
-    width: .3125rem; height: .3125rem; border-radius: 50%;
-    background: var(--muted); opacity: .25; animation: typing-blink 1.2s infinite;
-  }
-  .typing span:nth-child(2) { animation-delay: .2s; }
-  .typing span:nth-child(3) { animation-delay: .4s; }
-  @keyframes typing-blink { 0%, 60%, 100% { opacity: .2; } 30% { opacity: .9; } }
   .say-row { flex: 0 0 auto; display: flex; gap: .5rem; margin-top: .5rem; }
   .say-row input { flex: 1 1 auto; min-width: 0; }
   /* Markdown produced by renderMarkdown() */
@@ -668,16 +659,9 @@ function renderChat() {
       `</div></div>`
     );
   }
-  // Nobody has said anything and a model is thinking: still show the thread
-  // area with the placeholder, so the empty box does not look broken.
-  if (waitingOnLlm()) {
-    const align = state.turn === right ? " right" : "";
-    parts.push(
-      `<div class="line${align}"><div class="bubble">` +
-        `<div class="typing"><span></span><span></span><span></span></div>` +
-      `</div></div>`
-    );
-  }
+  // Nothing here may suggest that a turn is in progress: whether a model is
+  // thinking is already answered by the status line above, and a bubble in the
+  // thread would look like it had said something.
   if (!parts.length) {
     chatEl.innerHTML = '<div class="hint">Nothing said yet.</div>';
     return;
@@ -903,10 +887,9 @@ function connect() {
     const payload = JSON.parse(event.data);
     if (payload.type === "connected") return;
 
-    // Streaming deltas are still pushed by the backend, but nothing the model
-    // writes as plain text is shown any more: its public lines arrive through
-    // the `speak` tool. The deltas only keep the "typing" placeholder company,
-    // so they cost no DOM work here.
+    // Nothing the model writes as plain text is shown any more: its public
+    // lines arrive through the `speak` tool. Streaming deltas have no visual
+    // consumer at all, so both are ignored.
     if (payload.type === "llm_delta" || payload.type === "llm_message") return;
 
     if (payload.type === "game_started" || payload.type === "game_loaded") {

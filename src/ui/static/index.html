@@ -523,15 +523,14 @@ function renderStatus() {
   if (blocked) selected = null;
 
   // Speaking follows the server's answer, not the board: a human may heckle
-  // while the opponent is thinking, so this is not tied to whose turn it is.
-  // `say_side` is null for a game with no human seat and once it is over.
+  // while the opponent is thinking, and may still say something after the game
+  // is over. `say_side` is null only for a matchup with no human seat.
   const sayBtn = document.getElementById("say-send");
-  const canSay = !!state.say_side && !state.finished;
+  const canSay = !!state.say_side;
   sayInput.disabled = !canSay;
   sayBtn.disabled = !canSay;
   let sayWhy = "";
   if (!state.game_id) sayWhy = "Start or load a game first.";
-  else if (state.finished) sayWhy = "The game is over.";
   else if (!canSay) sayWhy = "Both sides are models: they talk through their own tools.";
   if (sayWhy) {
     sayInput.title = sayWhy;

@@ -189,11 +189,14 @@ def test_speak_is_length_limited_instead_of_truncated():
     assert ex.said == []
 
 
-def test_speak_is_refused_once_the_turn_is_over():
+def test_speak_still_works_after_the_turn_is_over():
+    """A model that plays its move and then talks must not lose the sentence."""
+
     ex = ToolExecutor(ChessEngine(), "white")
     call(ex, "make_move", {"move": "e4"})
-    payload = call(ex, "speak", {"text": "Too late."})
+    payload = call(ex, "speak", {"text": "Good game."})
 
-    assert payload["ok"] is False
-    assert payload["error"]["category"] == "illegal_state"
-    assert ex.said == []
+    assert payload["ok"] is True
+    assert ex.said == ["Good game."]
+    # Everything that would change the game stays closed.
+    assert call(ex, "make_move", {"move": "e5"})["error"]["category"] == "illegal_state"

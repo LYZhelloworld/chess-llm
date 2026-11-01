@@ -70,6 +70,16 @@ Think privately, call `speak` if you want your opponent to hear something, then 
 play your move with `make_move`.
 """
 
+FAREWELL_PROMPT = """The game is over. {standing}
+
+You may say one last thing to your opponent with `speak` - a handshake, a \
+parting shot, an offer to play again. One or two sentences.
+
+Nothing else is possible: the board is closed, so do not call `make_move`, \
+`resign` or any other tool. If you have nothing to say, reply with nothing at \
+all.
+"""
+
 NUDGE_NO_MOVE = (
     "You have not played a legal move yet. Call `make_move` now with exactly one "
     "SAN move taken from `get_legal_moves`. Do not call any other tool first "
@@ -130,6 +140,22 @@ def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -
         legal_moves=legal_block,
         opponent_section=opponent_section,
     )
+
+
+def farewell_prompt(side: str, result: Any) -> str:
+    """The single prompt sent after the game ended, allowing a closing remark.
+
+    ``result`` is the engine's :class:`GameResult`; it is read through
+    attributes so this module keeps no dependency on ``src.engine``.
+    """
+
+    if result.winner is None:
+        standing = f"The game is drawn ({result.reason})."
+    elif result.winner == side:
+        standing = f"You won ({result.reason})."
+    else:
+        standing = f"You lost ({result.reason})."
+    return FAREWELL_PROMPT.format(standing=standing)
 
 
 def as_user_message(content: str) -> Dict[str, str]:

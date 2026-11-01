@@ -10,9 +10,11 @@ from typing import Any, Callable, Dict, List, Optional, Protocol
 from src.agent.llm_client import REASONING_KEY, AssistantMessage, ToolCall
 from src.config import AppConfig
 from src.engine.board import ChessEngine
+from src.engine.rules import evaluate_position
 from src.prompts import (
     FALLBACK_NOTICE,
     NUDGE_NO_MOVE,
+    farewell_prompt,
     system_prompt,
     turn_prompt,
 )
@@ -255,6 +257,19 @@ def run_llm_turn(
             if executor.resigned:
                 outcome.resigned = True
                 outcome.resign_reason = executor.resign_reason
+            _last_words(
+                client=client,
+                engine=engine,
+                side=side,
+                memory=memory,
+                config=config,
+                emit=emit,
+                outcome=outcome,
+                executor=executor,
+                keep_reasoning=keep_reasoning,
+                chat_kwargs=chat_kwargs,
+                stamp=stamp,
+            )
             return outcome
 
     LOGGER.warning(
@@ -262,7 +277,93 @@ def run_llm_turn(
         side,
         config.loop.max_tool_turns,
     )
-    return _fallback(engine, side, memory, outcome, emit, rng)
+    outcome = _fallback(engine, side, memory, outcome, emit, rng)
+    # A random move can finish the game too (mate, stalemate), and the model
+    # still deserves its closing line.
+    if evaluate_position(engine.board, config.draw) is not None:
+        closing = make_executor(engine, side)
+        closing.terminal = True
+        _last_words(
+            client=client,
+            engine=engine,
+            side=side,
+            memory=memory,
+            config=config,
+            emit=emit,
+            outcome=outcome,
+            executor=closing,
+            keep_reasoning=keep_reasoning or False,
+            chat_kwargs=chat_kwargs,
+            stamp=stamp,
+        )
+    return outcome
+
+
+def _last_words(
+    client: ChatClient,
+    engine: ChessEngine,
+    side: str,
+    memory: ChatMemory,
+    config: AppConfig,
+    emit: EmitFn,
+    outcome: TurnOutcome,
+    executor: ToolExecutor,
+    keep_reasoning: bool,
+    chat_kwargs: Dict[str, Any],
+    stamp: Optional[Callable[[Dict[str, Any], int], None]],
+) -> None:
+    """One closing exchange once the game has ended.
+
+    The turn returns as soon as the committing tool runs, so a model that has
+    just delivered mate - or resigned - would otherwise never get to say
+    anything about it. This gives it a single request to do so. Exactly one:
+    the result is decided, so retrying or arguing about it would only add noise
+    and latency, and a failure here is logged and swallowed because the game is
+    over either way.
+    """
+
+    result = evaluate_position(engine.board, config.draw)
+    if result is None:
+        return
+
+    message: Dict[str, Any] = {
+        "role": "user",
+        "content": farewell_prompt(side, result),
+    }
+    memory.add(message)
+    outcome.transcript.append(message)
+    emit({"type": "user_prompt", "side": side, "content": message["content"]})
+
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": system_prompt(side)}
+    ]
+    messages.extend(memory.window(config.loop.context_turns, keep_reasoning))
+    try:
+        response = client.chat(messages, TOOL_DEFINITIONS, **chat_kwargs)
+    except Exception as exc:  # noqa: BLE001 - the game is already over
+        LOGGER.warning("Closing remark for %s could not be requested: %s", side, exc)
+        return
+
+    assistant_message = response.to_message()
+    if stamp is not None and any(call.name == "speak" for call in response.tool_calls):
+        # 0 = said after the game: it belongs to no move, so it never turns into
+        # a PGN comment.
+        stamp(assistant_message, 0)
+    memory.add(assistant_message)
+    outcome.transcript.append(assistant_message)
+    emit(
+        {
+            "type": "llm_message",
+            "side": side,
+            "content": response.content or "",
+            REASONING_KEY: response.reasoning or "",
+        }
+    )
+    # The executor is already terminal, so anything except `speak` (and the
+    # read-only tools) comes back as illegal_state - exactly what the prompt
+    # asked the model not to do.
+    for call in response.tool_calls:
+        _run_tool(executor, call, side, memory, outcome, emit)
 
 
 def _run_tool(

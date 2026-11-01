@@ -74,7 +74,16 @@ class ToolExecutor:
                 ),
             )
 
-        if self.terminal and name not in {"get_board", "get_board_ascii", "get_legal_moves"}:
+        # `speak` stays open after the turn is over: the loop uses it for the
+        # one closing remark a model may make once the game has ended, and a
+        # model that plays its move and then says something in the same answer
+        # should not lose the sentence.
+        if self.terminal and name not in {
+            "get_board",
+            "get_board_ascii",
+            "get_legal_moves",
+            "speak",
+        }:
             return _json(
                 {
                     "ok": False,

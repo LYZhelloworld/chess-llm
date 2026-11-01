@@ -21,7 +21,9 @@ from src.tools.schema import SPEAK_MAX_CHARS
 #   while the opponent was thinking could not be placed after the one it
 #   followed.
 # - ``ply`` is the 1-based ply the remark belongs to, i.e. the move the speaker
-#   was about to play. It is what the PGN comment is built from.
+#   was about to play. It is what the PGN comment is built from. ``0`` means the
+#   remark was made after the game ended, so it belongs to no move and never
+#   becomes a comment.
 # - ``spoken`` marks a ``user`` message as a human's public remark. The ``user``
 #   messages of an LLM seat are turn prompts, not speech.
 SEQ_KEY = "seq"

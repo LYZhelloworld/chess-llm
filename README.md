@@ -51,12 +51,14 @@ Then, in the browser:
   model's `speak` lines and your own typed messages appear together. A model's
   plain text and chain of thought are never shown - only what it chose to say
   out loud. Type in the box under the thread to talk to your opponent; it reaches
-  them at the start of their next turn.
+  them at the start of their next turn. A model that ends the game - by mate or
+  by resigning - gets one last request to say something about it, and the box
+  stays open after the result for the same reason.
 
 `human-vs-human` is hot-seat: both players share the board, and whoever is to
 move may play; the resign button acts on the side to move. The same screen
 speaks for that side too, so the thread is labelled `White` / `Black` and only
-the player on move can type.
+the player on move can type - until the game ends, when both may.
 
 ## Command line
 

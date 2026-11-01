@@ -200,11 +200,11 @@ class GameController:
 
         A single human plays their own seat; in a hot-seat game the same screen
         speaks for whoever is to move, so the remark is attributed to the side
-        that is actually playing.
+        that is actually playing. A finished game keeps the box open - the two
+        players can still shake hands - and only a matchup without a human seat
+        is silent.
         """
 
-        if self.state.finished:
-            return None
         if self._hot_seat():
             return self.side_to_move
         humans = [side for side in (WHITE, BLACK) if self.state.player(side).kind == HUMAN]
@@ -215,11 +215,11 @@ class GameController:
 
         It is stored straight away and handed to the opponent at the start of
         their next turn, so somebody thinking about their move can be heckled
-        without interrupting the turn in flight.
+        without interrupting the turn in flight. Once the game is over nobody
+        is handed anything any more, but the box stays open for a last word:
+        those remarks carry no ply and never become a PGN comment.
         """
 
-        if self.state.finished:
-            return self._error("illegal_state", "The game is already finished.")
         side = (side or "").strip().lower()
         if side not in (WHITE, BLACK):
             return self._error(
@@ -231,7 +231,10 @@ class GameController:
                 f"{side.capitalize()} is an LLM seat; only a human can speak.",
             )
         expected = self.say_side
-        if expected is not None and side != expected:
+        # Once the game is over there is no turn left to own the floor, so a
+        # hot-seat pair may both say their goodbyes; before that the seat on
+        # move is the only one that speaks.
+        if expected is not None and side != expected and not self.state.finished:
             return self._error(
                 "illegal_state", f"It is {expected}'s turn to speak, not {side}'s."
             )
@@ -247,7 +250,9 @@ class GameController:
                 f"the limit is {SPEAK_MAX_CHARS}.",
             )
 
-        message = self.state.speak(side, text, self.engine.ply + 1)
+        message = self.state.speak(
+            side, text, 0 if self.state.finished else self.engine.ply + 1
+        )
         LOGGER.info("%s said: %s", side, text)
         self.emit(
             {

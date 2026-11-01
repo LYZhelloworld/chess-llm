@@ -69,8 +69,10 @@ Rules:
   the history goes back to a backend: `seq` puts both sides' remarks on one
   timeline (the two histories are separate lists, so a line typed while the
   opponent was thinking could not be placed otherwise), `ply` is the 1-based ply
-  the remark belongs to (that is what the PGN comment uses), and `spoken` marks
-  a human's `user` message. See `_for_backend()` in `src/agent/loop.py`.
+  the remark belongs to (that is what the PGN comment uses; `0` means it was
+  said after the game ended, so it belongs to no move and never becomes a
+  comment), and `spoken` marks a human's `user` message. See `_for_backend()` in
+  `src/agent/loop.py`.
 - The UI's conversation and the PGN comments are both derived from these two
   histories, so nothing can drift: the same stored remark feeds both.
 - `moves_uci` is kept alongside `moves_san` so a move can be replayed even if

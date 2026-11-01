@@ -138,7 +138,9 @@ R N B Q K B N R
   而不是被静默截断——模型得把话缩短，而不是悄无声息地丢掉半句。
 - `text` 中的空行会在界面上开启一个新气泡。整条内容在对话记录里仍是一条，对对手来说
   也是一整段发言。
-- 回合已结束（`make_move` 或 `resign` 已执行）后调用会以 `illegal_state` 被拒绝。
+- 回合结束之后仍然可用：终局时循环会用它让模型说最后一句，而"先走子、同一批调用里
+  再补一句"的模型也不会丢掉那句话。除此之外的工具在 `make_move` 或 `resign` 执行后
+  一律以 `illegal_state` 被拒绝。
 
 ```json
 {"ok": true, "tool": "speak", "spoken": "Your king looks lonely over there.",

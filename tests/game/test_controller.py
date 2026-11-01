@@ -152,14 +152,31 @@ def test_only_a_human_seat_can_speak(tmp_path):
     assert controller.state.conversation() == []
 
 
-def test_speaking_is_refused_after_the_game_ends(tmp_path):
+def test_a_human_may_say_goodbye_after_the_game_ends(tmp_path):
     controller, _ = make_controller(tmp_path)
     controller.resign("white", "done")
 
     result = controller.say("white", "Good game.")
 
-    assert result["ok"] is False
-    assert result["error"]["category"] == "illegal_state"
+    assert result["ok"] is True
+    said = controller.state.conversation()
+    assert [(entry["side"], entry["text"]) for entry in said] == [
+        ("white", "Good game.")
+    ]
+    # A remark made after the final move belongs to no ply, so it never turns
+    # into a PGN comment on the last move.
+    assert controller.state.white_chat_history[-1]["ply"] == 0
+
+
+def test_a_model_only_matchup_still_has_nobody_to_speak_after_the_game(tmp_path):
+    controller, _ = make_controller(
+        tmp_path,
+        white=PlayerSpec.llm("default", "m1"),
+        black=PlayerSpec.llm("default", "m2"),
+    )
+    controller.state.finished = True
+
+    assert controller.say_side is None
 
 
 def test_speaking_rejects_empty_and_over_long_text(tmp_path):
@@ -347,3 +364,15 @@ def test_events_are_emitted(tmp_path):
     controller = GameController(state, AppConfig(), paths, emit=seen.append)
     controller.submit_human_move("e4")
     assert any(event["type"] == "move" for event in seen)
+
+
+def test_hot_seat_players_can_both_say_goodbye(tmp_path):
+    """After the last move there is no turn to own the floor any more."""
+
+    controller, _ = make_controller(
+        tmp_path, white=PlayerSpec.human(), black=PlayerSpec.human()
+    )
+    controller.state.finished = True
+
+    assert controller.say("white", "Good game.")["ok"] is True
+    assert controller.say("black", "You too.")["ok"] is True

@@ -128,7 +128,27 @@ remark is stored and displayed immediately; it joins the opponent's prompt at
 the start of their **next** turn, because a turn that is already running has
 already built its prompt.
 
-## 5. Events emitted
+## 5. Last words
+
+The turn returns the moment the committing tool runs, so a model that has just
+delivered mate - or resigned - would otherwise never get to react to it. When
+the position is terminal after that tool, `run_llm_turn` sends **one** extra
+request (see `farewell_prompt` in `src/prompts.py`):
+
+- the prompt states the result from that side's point of view, allows a closing
+  remark through `speak`, and forbids every other tool ("the board is closed");
+- the executor is still in its terminal state, so a `make_move` or `resign` in
+  that answer comes back as `illegal_state` rather than changing anything;
+- exactly one request is made. There is no retry, no nudge and no loop: the
+  result is decided, so anything more would only be latency. A backend failure
+  is logged and swallowed, and the move that ended the game is still recorded.
+
+Those remarks carry `ply = 0`, which is the marker for "said after the game":
+they are shown in the thread but never become a PGN comment, because they
+belong to no move. The same applies to a human's remark typed after the game
+ended, which the controller still accepts.
+
+## 6. Events emitted
 
 | Type | Payload |
 | --- | --- |

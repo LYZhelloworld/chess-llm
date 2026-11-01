@@ -85,8 +85,12 @@ module except the agent loop.
 - **Humans get the same channel.** The UI has a message box; what is typed there
   is stored as a remark of the human seat, shown in the conversation, and quoted
   to the opponent in their next turn prompt. A human may speak at any moment -
-  including while the model is thinking - but never into the middle of a turn
-  that has already built its prompt.
+  including while the model is thinking, and including after the game is over -
+  but never into the middle of a turn that has already built its prompt.
+- **The game gets a closing line.** Both sides may say one last thing once the
+  result is in: a model because `run_llm_turn` sends one extra `speak`-only
+  request after the committing tool, a human because the message box stays open.
+  Those remarks belong to no move, so they never turn into a PGN comment.
 - **Table talk is injected as context.** Opponent remarks are forwarded as
   `Opponent's remarks since your last turn` at the start of the next turn (see
   `docs/LLM-LOOP.md`). This lets agents respond to trash talk, at the cost of
@@ -114,11 +118,13 @@ module except the agent loop.
 - `GET /` - single page app.
 - `GET /api/state` - full snapshot: FEN, ASCII, legal moves, move list, both
   chat histories, the merged `conversation` shown in the UI, `say_side` (the
-  seat allowed to type, `null` when nobody may), result.
+  seat the input box speaks for, `null` when the matchup has no human seat),
+  result.
 - `POST /api/move` - `{ "move": "Nf3" }` (SAN or UCI).
 - `POST /api/say` - `{ "side": "white", "text": "..." }` (side optional; the
   server falls back to the seat that may speak). Rejected with `400` unless that
-  seat is human, and - in a hot-seat game - is the side to move.
+  seat is human, and - in a hot-seat game still in progress - is the side to
+  move. Once the game is over either human seat is accepted.
 - `POST /api/resign` - `{ "side": "white", "reason": "..." }` (reason is
   optional). Rejected with `400` unless the seat is human and - in a hot-seat
   game - is the side to move.
@@ -144,9 +150,10 @@ hot-seat, where nobody is the viewer). The thread holds remarks and nothing
 else: no typing indicator, because whether a model is thinking is already
 answered by the status line in the game card, and a bubble would read as if it
 had spoken. In a hot-seat game the same screen speaks for the side to
-move, so that seat is the only one allowed to type - and the bubbles are
-labelled `White` / `Black`, because two seats sharing one screen cannot both be
-"Human".
+move, so that seat is the only one allowed to type while the game is running -
+and the bubbles are labelled `White` / `Black`, because two seats sharing one
+screen cannot both be "Human". The box stays usable after the last move, when
+there is no turn left to own.
 
 `--port` is the only part of the bind the command line controls; the address is
 fixed to `127.0.0.1`. The `local_only` middleware (`src/ui/server.py`)

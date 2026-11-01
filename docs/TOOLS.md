@@ -143,8 +143,10 @@ the opponent before their next turn.
   say it shorter rather than silently losing an argument.
 - A blank line inside `text` starts a new bubble in the UI. The whole remark is
   still one entry in the transcript and one whole remark to the opponent.
-- Refused with `illegal_state` once the turn is over (a `make_move` or `resign`
-  already ran).
+- Still accepted after the turn is over. The loop uses it for the one closing
+  remark a model may make once the game has ended, and a model that plays its
+  move and then says something in the same answer keeps the sentence. Every
+  other tool is refused with `illegal_state` once `make_move` or `resign` ran.
 
 ```json
 {"ok": true, "tool": "speak", "spoken": "Your king looks lonely over there.",

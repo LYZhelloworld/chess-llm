@@ -1,5 +1,6 @@
 from src.engine.board import ChessEngine
-from src.prompts import system_prompt, turn_prompt
+from src.engine.rules import GameResult
+from src.prompts import farewell_prompt, system_prompt, turn_prompt
 
 
 def test_turn_prompt_includes_material_legal_and_opponent():
@@ -74,3 +75,16 @@ def test_turn_prompt_states_the_piece_values_once():
     # not repeat them, which it used to do in a trailing "Values: ..." sentence.
     assert text.count("P=1") == 1
     assert "Values:" not in text
+
+
+def test_farewell_prompt_reads_the_result_from_the_players_side():
+    won = GameResult(winner="white", reason="checkmate", pgn_result="1-0")
+    lost = GameResult(winner="black", reason="checkmate", pgn_result="0-1")
+    drawn = GameResult(winner=None, reason="stalemate", pgn_result="1/2-1/2")
+
+    assert "You won (checkmate)." in farewell_prompt("white", won)
+    assert "You lost (checkmate)." in farewell_prompt("white", lost)
+    assert "The game is drawn (stalemate)." in farewell_prompt("white", drawn)
+    # The board is closed: the closing prompt must rule the playing tools out.
+    assert "`make_move`" in farewell_prompt("white", won)
+    assert "`speak`" in farewell_prompt("white", won)

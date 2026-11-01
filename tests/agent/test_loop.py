@@ -378,3 +378,52 @@ def test_a_stale_fallback_switch_cannot_starve_a_turn():
     assert outcome.fallback_random is True
     assert outcome.move_san is not None
     assert engine.ply == 1
+
+
+# ------------------------------------------------------- closing remark at the end
+# White mates with Rh8 on this board, so the move itself ends the game.
+MATE_IN_ONE = "k7/8/1K6/8/8/8/8/7R w - - 0 1"
+
+
+def test_the_model_gets_one_closing_remark_after_delivering_mate():
+    engine = ChessEngine(MATE_IN_ONE)
+    memory = ChatMemory()
+    client = ScriptedClient(
+        tool_call("make_move", '{"move": "Rh8"}'),
+        tool_call("speak", '{"text": "Good game."}'),
+    )
+
+    outcome = run_llm_turn(client, engine, "white", memory, AppConfig())
+
+    assert outcome.move_san == "Rh8#"
+    assert outcome.spoken == ["Good game."]
+    # One extra request, and it is prompted with the fact that the game is over.
+    assert len(client.requests) == 2
+    assert "The game is over" in client.requests[1]["messages"][-1]["content"]
+
+
+def test_no_closing_remark_while_the_game_goes_on():
+    engine = ChessEngine()
+    memory = ChatMemory()
+    client = ScriptedClient(tool_call("make_move", '{"move": "e4"}'))
+
+    outcome = run_llm_turn(client, engine, "white", memory, AppConfig())
+
+    assert outcome.move_san == "e4"
+    assert len(client.requests) == 1
+    assert outcome.spoken == []
+
+
+def test_a_failed_closing_request_does_not_lose_the_move():
+    """The game is already decided; a backend hiccup on the goodbye is noise."""
+
+    engine = ChessEngine(MATE_IN_ONE)
+    memory = ChatMemory()
+    # Only one canned answer: the closing request raises.
+    client = ScriptedClient(tool_call("make_move", '{"move": "Rh8"}'))
+
+    outcome = run_llm_turn(client, engine, "white", memory, AppConfig())
+
+    assert outcome.move_san == "Rh8#"
+    assert outcome.resigned is False
+    assert outcome.spoken == []

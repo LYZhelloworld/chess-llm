@@ -70,8 +70,8 @@
     grid-template-rows: minmax(0, 1fr) var(--conv-h);
     gap: 1.125rem;
   }
-  .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
-  .conversation-card { min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+  .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+  .conversation-card { min-height: 0; display: flex; flex-direction: column; }
   @media (max-width: 1040px) {
     /* Stacked layout: there is no room to fit a board plus two cards plus the
        chat side by side, so columns go vertical and the page is allowed to
@@ -89,7 +89,12 @@
   }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: .875rem 1rem; margin-bottom: .875rem;
+    padding: .875rem 1rem;
+    /* No vertical margin: the grid gaps own the spacing between cards. A
+       bottom margin here would push the conversation up inside its grid row
+       (margins sit inside a grid area) while the board card, sized to 100% of
+       its column, would spill it outwards - the two bottom edges would end up
+       a margin apart. */
   }
   .card h2 { font-size: .8125rem; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 .625rem; }
   /* The board is a square that must fit whatever height the card has left:
@@ -149,7 +154,7 @@
   .side { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   /* Grow to fill the column so a short game still paints one card the full
      height of the row; never shrink, because the card owns the scroll. */
-  .side .card { flex: 1 0 auto; margin-bottom: 0; }
+  .side .card { flex: 1 0 auto; }
   .moves-sub h2 { margin-bottom: .375rem; }
   .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
   .chat-head h2 { margin: 0 0 .5rem; }

@@ -18,6 +18,7 @@ from src.engine.errors import (
 )
 from src.engine.rules import evaluate_position
 from src.config import DrawConfig
+from src.tools.schema import SPEAK_MAX_CHARS, TOOL_NAMES
 
 LOGGER = logging.getLogger("src.tools.executor")
 
@@ -50,6 +51,8 @@ class ToolExecutor:
         self.resigned: bool = False
         self.resign_reason: Optional[str] = None
         self.terminal: bool = False
+        # Every accepted public remark of this turn, in the order it was made.
+        self.said: List[str] = []
 
     # ------------------------------------------------------------------ public
     def execute(self, name: str, raw_arguments: str) -> str:
@@ -67,20 +70,20 @@ class ToolExecutor:
                 MoveError(
                     CATEGORY_UNKNOWN_TOOL,
                     f"Unknown tool '{name}'. Available tools: "
-                    + ", ".join(
-                        [
-                            "get_board",
-                            "get_board_ascii",
-                            "get_legal_moves",
-                            "try_make_move",
-                            "make_move",
-                            "resign",
-                        ]
-                    ),
+                    + ", ".join(TOOL_NAMES),
                 ),
             )
 
-        if self.terminal and name not in {"get_board", "get_board_ascii", "get_legal_moves"}:
+        # `speak` stays open after the turn is over: the loop uses it for the
+        # one closing remark a model may make once the game has ended, and a
+        # model that plays its move and then says something in the same answer
+        # should not lose the sentence.
+        if self.terminal and name not in {
+            "get_board",
+            "get_board_ascii",
+            "get_legal_moves",
+            "speak",
+        }:
             return _json(
                 {
                     "ok": False,
@@ -207,6 +210,30 @@ class ToolExecutor:
                 "game; call make_move with the first move to play it."
             )
         return _json(payload)
+
+    def _tool_speak(self, args: Dict[str, Any]) -> str:
+        text = args.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise MoveError(
+                CATEGORY_INVALID_INPUT,
+                "Invalid input: 'text' must be a non-empty string.",
+            )
+        text = text.strip()
+        if len(text) > SPEAK_MAX_CHARS:
+            raise MoveError(
+                CATEGORY_INVALID_INPUT,
+                f"Invalid input: 'text' is {len(text)} characters, "
+                f"the limit is {SPEAK_MAX_CHARS}. Say it shorter.",
+            )
+        self.said.append(text)
+        return _json(
+            {
+                "ok": True,
+                "tool": "speak",
+                "spoken": text,
+                "message": "Said out loud. Your turn continues.",
+            }
+        )
 
     def _tool_make_move(self, args: Dict[str, Any]) -> str:
         move = args.get("move")

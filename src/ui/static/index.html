@@ -49,45 +49,52 @@
   }
   h1 { font-size: 1.125rem; margin: 0; letter-spacing: .3px; }
   .meta { color: var(--muted); font-size: .8125rem; }
-  /* Layout: a grid whose first row takes all the height the conversation does
-     not need, the second row a fixed share of the viewport. Because the split
-     is resolved by the grid and not by subtracting hard-coded chrome from
-     100vh, the total can never exceed the viewport. */
+  /* Layout: two columns. The board owns the left one; the right one splits
+     into the game card, which takes all the height the conversation does not
+     need, and the conversation below it. The split is resolved by the grids and
+     never by subtracting hard-coded chrome from 100vh, so the total can never
+     exceed the viewport. */
   .app {
     flex: 1 1 auto; min-height: 0;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) var(--conv-h);
+    grid-template-columns: minmax(23rem, 40rem) minmax(21rem, 1fr);
     gap: 1.125rem;
     padding: 1.125rem 1.375rem;
   }
-  .top-row {
-    display: grid; grid-template-columns: minmax(24rem, 40rem) minmax(20rem, 1fr);
-    /* One row that fills the grid area. An `auto` row would size itself to the
-       board's intrinsic (square) height, overflow the area and paint over the
-       conversation underneath. */
-    grid-template-rows: minmax(0, 1fr);
-    gap: 1.125rem; align-items: stretch;
-    min-height: 0;
+  .board-col, .right-col { min-width: 0; min-height: 0; }
+  .right-col {
+    display: grid;
+    /* An `auto` first row would size itself to the game card's content and
+       overflow the column; `minmax(0, 1fr)` hands the leftovers to that card
+       and lets its own scroll area absorb them. */
+    grid-template-rows: minmax(0, 1fr) var(--conv-h);
+    gap: 1.125rem;
   }
-  .col { min-width: 0; min-height: 0; }
-  .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
-  .conversation-card { min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
+  .board-card { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+  .conversation-card { min-height: 0; display: flex; flex-direction: column; }
   @media (max-width: 1040px) {
     /* Stacked layout: there is no room to fit a board plus two cards plus the
        chat side by side, so columns go vertical and the page is allowed to
        scroll again - scaling the text down far enough would make it unreadable. */
     body { overflow-y: auto; }
     .app { display: flex; flex-direction: column; }
-    .top-row { flex: 0 0 auto; grid-template-columns: 1fr; grid-template-rows: none; }
-    .col.side { display: block; overflow: visible; }
+    /* The right column keeps its own gap once it stops being a grid: without
+       it the game card and the conversation would sit flush against each
+       other, since both drop their bottom margin inside their column. */
+    .right-col { display: flex; flex-direction: column; gap: 1.125rem; }
     .board-card { height: auto; }
     .board-fit { display: block; }
     #board { height: auto; width: min(100%, 62vh); }
-    .conversation-card { flex: 0 0 auto; height: 60vh; min-height: 0; }
+    .conversation-card { height: 60vh; }
   }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: 10px;
-    padding: .875rem 1rem; margin-bottom: .875rem;
+    padding: .875rem 1rem;
+    /* No vertical margin: the grid gaps own the spacing between cards. A
+       bottom margin here would push the conversation up inside its grid row
+       (margins sit inside a grid area) while the board card, sized to 100% of
+       its column, would spill it outwards - the two bottom edges would end up
+       a margin apart. */
   }
   .card h2 { font-size: .8125rem; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); margin: 0 0 .625rem; }
   /* The board is a square that must fit whatever height the card has left:
@@ -147,30 +154,32 @@
   .side { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   /* Grow to fill the column so a short game still paints one card the full
      height of the row; never shrink, because the card owns the scroll. */
-  .side .card { flex: 1 0 auto; margin-bottom: 0; }
+  .side .card { flex: 1 0 auto; }
   .moves-sub h2 { margin-bottom: .375rem; }
   .chat-head { display: flex; align-items: baseline; justify-content: space-between; gap: .75rem; }
-  .chat-head h2 { margin: 0 0 .625rem; }
-  .toggle { font-size: .75rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
-  #chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; font-size: .8125rem; }
-  .msg { border-left: 3px solid var(--border); padding: .375rem .625rem; margin-bottom: .5rem; word-break: break-word; }
-  .msg.user { border-left-color: #9aa3b2; color: var(--muted); }
-  .msg.assistant { border-left-color: var(--accent); background: #fbfcfe; }
-  .msg.tool { border-left-color: #c7cbd3; }
-  .msg.white { border-left-color: #aab4c2; }
-  .msg.black { border-left-color: #55606f; }
-  .msg .role { font-size: .6875rem; text-transform: uppercase; color: var(--muted); letter-spacing: .6px; }
-  .msg.live { border-left-color: var(--accent); background: #fbfcfe; }
-  /* The chain of thought lives in a collapsible <details>. It is expanded while
-     the live reply is still only thinking, and collapsed (both live, the moment
-     spoken content starts, and in history) otherwise. */
-  details.cot-box { border: 1px solid var(--border); border-radius: 6px; background: #f6f7f9; margin-bottom: 6px; }
-  details.cot-box > summary {
-    cursor: pointer; font-size: .6875rem; text-transform: uppercase; letter-spacing: .6px;
-    color: var(--muted); padding: .3125rem .5rem; user-select: none;
+  .chat-head h2 { margin: 0 0 .5rem; }
+  #chat {
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+    display: flex; flex-direction: column; gap: .5rem;
+    padding-right: .25rem; font-size: .8125rem;
   }
-  details.cot-box > summary::marker { color: var(--muted); }
-  details.cot-box > .md { padding: 0 .5rem .5rem; }
+  /* An IM-style thread: one bubble per paragraph, the side the operator is
+     "looking from" on the right (see rightSide()), the other one on the left. */
+  .line { display: flex; }
+  .line.right { justify-content: flex-end; }
+  .bubble {
+    max-width: 80%; border-radius: 10px; padding: .375rem .625rem;
+    background: #f1f3f6; border: 1px solid var(--border);
+    word-break: break-word; overflow-wrap: anywhere;
+  }
+  .line.right .bubble { background: var(--accent-soft); border-color: #cfe0ff; }
+  .bubble .who {
+    font-size: .625rem; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--muted); margin-bottom: .1875rem;
+  }
+  .bubble .md { line-height: 1.45; }
+  .say-row { flex: 0 0 auto; display: flex; gap: .5rem; margin-top: .5rem; }
+  .say-row input { flex: 1 1 auto; min-width: 0; }
   /* Markdown produced by renderMarkdown() */
   .md p { margin: .25rem 0; }
   .md p:first-child { margin-top: 0; }
@@ -201,6 +210,7 @@
   }
   input[type=text] { min-width: 5.625rem; }
   .hint { color: var(--muted); font-size: .75rem; }
+  .toggle { font-size: .75rem; color: var(--muted); cursor: pointer; white-space: nowrap; }
   #banner { padding: .625rem 1rem; border-radius: 8px; background: #fff7e6; border: 1px solid #ffe0a3; margin-bottom: .75rem; font-size: .8125rem; }
   #banner.hidden { display: none; }
   /* The banner takes ~2.5rem out of a page whose height is fixed to the
@@ -233,73 +243,77 @@
 <div class="page">
   <div id="banner" class="hidden"></div>
   <main class="app">
-    <section class="top-row">
-      <div class="col board-col">
-        <div class="card board-card">
-      <h2>Board</h2>
-      <div class="board-fit"><div id="board"></div></div>
-      <div class="coords"><span id="turn-label"></span></div>
-      <div class="row" style="margin-top:.625rem">
-        <input type="text" id="san" placeholder="SAN, e.g. Nf3" />
-        <button id="play">Play move</button>
-        <select id="promotion" title="promotion piece">
-          <option value="q">promote Q</option>
-          <option value="r">promote R</option>
-          <option value="b">promote B</option>
-          <option value="n">promote N</option>
-        </select>
-      </div>
-      <div class="hint" id="board-hint">Click a piece, then a highlighted target square.</div>
+    <div class="board-col">
+      <div class="card board-card">
+        <h2>Board</h2>
+        <div class="board-fit"><div id="board"></div></div>
+        <div class="coords"><span id="turn-label"></span></div>
+        <div class="row" style="margin-top:.625rem">
+          <input type="text" id="san" placeholder="SAN, e.g. Nf3" />
+          <button id="play">Play move</button>
+          <select id="promotion" title="promotion piece">
+            <option value="q">promote Q</option>
+            <option value="r">promote R</option>
+            <option value="b">promote B</option>
+            <option value="n">promote N</option>
+          </select>
         </div>
+        <div class="hint" id="board-hint">Click a piece, then a highlighted target square.</div>
       </div>
+    </div>
 
-      <div class="col side">
-      <div class="card">
-        <h2>Game</h2>
-        <div class="status" id="status"></div>
+    <div class="right-col">
+      <div class="side">
+        <div class="card">
+          <h2>Game</h2>
+          <div class="status" id="status"></div>
 
-        <div class="card-sub">
-          <h3>New game</h3>
-          <div class="row" style="margin-top:.375rem">
-            <select id="new-white"></select>
-            <select id="new-black"></select>
-            <button class="secondary" id="new-game">New game</button>
+          <div class="card-sub">
+            <h3>New game</h3>
+            <div class="row" style="margin-top:.375rem">
+              <select id="new-white"></select>
+              <select id="new-black"></select>
+              <button class="secondary" id="new-game">New game</button>
+            </div>
+            <div class="hint" id="new-hint">Pick who plays each side. An LLM side needs a profile from <code>config.yaml</code>.</div>
           </div>
-          <div class="hint" id="new-hint">Pick who plays each side. An LLM side needs a profile from <code>config.yaml</code>.</div>
-        </div>
 
-        <div class="card-sub">
-          <h3>Load saved game</h3>
-          <div class="row" style="margin-top:.375rem">
-            <select id="saved-games"><option value="">load saved game…</option></select>
-            <button class="secondary" id="load-game">Load</button>
+          <div class="card-sub">
+            <h3>Load saved game</h3>
+            <div class="row" style="margin-top:.375rem">
+              <select id="saved-games"><option value="">load saved game…</option></select>
+              <button class="secondary" id="load-game">Load</button>
+            </div>
+            <label class="toggle" style="margin-top:.5rem; display:inline-block">
+              <input type="checkbox" id="override-seats" /> override seats
+            </label>
+            <div class="row" id="override-row" style="margin-top:.375rem; display:none">
+              <select id="load-white"><option value="">(keep stored)</option></select>
+              <select id="load-black"><option value="">(keep stored)</option></select>
+            </div>
           </div>
-          <label class="toggle" style="margin-top:.5rem; display:inline-block">
-            <input type="checkbox" id="override-seats" /> override seats
-          </label>
-          <div class="row" id="override-row" style="margin-top:.375rem; display:none">
-            <select id="load-white"><option value="">(keep stored)</option></select>
-            <select id="load-black"><option value="">(keep stored)</option></select>
+
+          <div class="row" style="margin-top:.75rem">
+            <button class="danger" id="resign" title="Resign the game.">Resign</button>
+          </div>
+
+          <div class="card-sub moves-sub">
+            <h2>Moves</h2>
+            <table class="moves" id="moves"></table>
           </div>
         </div>
+      </div>
 
-        <div class="row" style="margin-top:.75rem">
-          <button class="danger" id="resign" title="Resign the game.">Resign</button>
+      <div class="card conversation-card">
+        <div class="chat-head">
+          <h2>Conversation</h2>
         </div>
-
-        <div class="card-sub moves-sub">
-          <h2>Moves</h2>
-          <table class="moves" id="moves"></table>
+        <div id="chat"></div>
+        <div class="say-row">
+          <input type="text" id="say-input" placeholder="Say something to your opponent…" />
+          <button id="say-send">Send</button>
         </div>
       </div>
-      </div>
-    </section>
-
-    <div class="card conversation-card">
-      <div class="chat-head">
-        <h2>Agent conversation</h2>
-      </div>
-      <div id="chat"></div>
     </div>
   </main>
 </div>
@@ -312,22 +326,10 @@ let state = null;
 let selected = null;
 let refreshTimer = null;
 let source = null;
-// Holds the in-progress streamed message for the side currently "writing".
-let liveDelta = null;
-// The live bubble's DOM node, updated in place during streaming so frequent
-// deltas never rebuild the whole chat (which would reset expanded history).
-let liveBubbleEl = null;
-// When the LLM crosses a tool boundary mid-turn (think -> tool -> think), the
-// next delta(s) must be preceded by a horizontal rule so the earlier thinking
-// stays visible and the phases stay separated. livePendingSep marks which
-// stream(s) still owe one.
-let livePendingSep = { content: false, reasoning: false };
-// Same separator merge_assistant_speech() uses to join one turn's assistant
-// messages; renderMarkdown() turns it into an <hr>.
-const STREAM_SEP = "\n\n---\n\n";
 
 const boardEl = document.getElementById("board");
 const chatEl = document.getElementById("chat");
+const sayInput = document.getElementById("say-input");
 
 function fenToSquares(fen) {
   const placement = fen.split(" ")[0];
@@ -519,6 +521,27 @@ function renderStatus() {
     else el.removeAttribute("title");
   }
   if (blocked) selected = null;
+
+  // Speaking follows the server's answer, not the board: a human may heckle
+  // while the opponent is thinking, and may still say something after the game
+  // is over. `say_side` is null only for a matchup with no human seat.
+  const sayBtn = document.getElementById("say-send");
+  const canSay = !!state.say_side;
+  sayInput.disabled = !canSay;
+  sayBtn.disabled = !canSay;
+  let sayWhy = "";
+  if (!state.game_id) sayWhy = "Start or load a game first.";
+  else if (!canSay) sayWhy = "Both sides are models: they talk through their own tools.";
+  if (sayWhy) {
+    sayInput.title = sayWhy;
+    sayBtn.title = sayWhy;
+    sayInput.placeholder = sayWhy;
+  } else {
+    sayInput.removeAttribute("title");
+    sayBtn.removeAttribute("title");
+    const who = state.say_side === "white" ? state.white_name : state.black_name;
+    sayInput.placeholder = `Say something as ${who || state.say_side}…`;
+  }
 }
 
 function renderMoves() {
@@ -614,167 +637,53 @@ function renderMarkdown(text) {
   return blocks.join("");
 }
 
-// Build a collapsible chain-of-thought block. `open` controls whether it starts
-// expanded: the live reply keeps it open while it is still only thinking and
-// collapses it the moment spoken content starts; history is always collapsed.
-function cotBlock(reasoning, open) {
-  if (!reasoning) return "";
-  return `<details class="cot-box"${open ? " open" : ""}>` +
-    `<summary>chain of thought</summary>` +
-    `<div class="md">${renderMarkdown(reasoning)}</div>` +
-    `</details>`;
+// Who sits on the right of the thread. One human at the board -> that human;
+// otherwise white, which covers LLM vs LLM and hot-seat (where both players
+// share the screen and neither of them is "the viewer").
+function rightSide() {
+  const seats = humanSides();
+  if (seats.length === 1) return seats[0];
+  return "white";
 }
 
-// One merged stream: what both agents said, in the order they said it.
-// Prompts, tool calls and tool results are deliberately left out.
+// One bubble per conversation entry. The backend has already split a remark
+// into paragraphs, so every entry is exactly one message.
 function renderChat() {
   const entries = state.conversation || [];
+  const right = rightSide();
   const parts = [];
   for (const entry of entries) {
-    const content = (entry.content || "").trim();
-    const reasoning = (entry.reasoning || "").trim();
-    // Skip entries that have neither spoken text nor a chain of thought.
-    if (!content && !reasoning) continue;
-    const body = content ? `<div class="md">${renderMarkdown(content)}</div>` : "";
-    // History always shows the chain of thought collapsed.
-    const cot = cotBlock(reasoning, false);
+    const side = entry.side === "white" ? "white" : "black";
+    const name = side === "white" ? state.white_name : state.black_name;
+    const align = side === right ? " right" : "";
     parts.push(
-      `<div class="msg ${entry.side}"><div class="role">${entry.side} · move ${Math.ceil(entry.ply / 2)}</div>${cot}${body}</div>`
+      `<div class="line${align}"><div class="bubble">` +
+        `<div class="who">${escapeHtml(name || side)}</div>` +
+        `<div class="md">${renderMarkdown(entry.text || "")}</div>` +
+      `</div></div>`
     );
   }
-  // While the side to move is replying, show the live streamed text as a
-  // temporary bubble at the bottom. It is replaced by the authoritative
-  // conversation as soon as the game state is refreshed.
-  if (liveDelta) {
-    const body = liveDelta.content
-      ? `<div class="md">${renderMarkdown(liveDelta.content)}</div>`
-      : "";
-    // The chain of thought is expanded only until content begins to stream.
-    const cot = cotBlock(liveDelta.reasoning, !liveDelta.content);
-    parts.push(
-      `<div class="msg ${liveDelta.side} live"><div class="role">${liveDelta.side} · writing…</div>${cot}${body}</div>`
-    );
+  // Nothing here may suggest that a turn is in progress: whether a model is
+  // thinking is already answered by the status line above, and a bubble in the
+  // thread would look like it had said something.
+  if (!parts.length) {
+    chatEl.innerHTML = '<div class="hint">Nothing said yet.</div>';
+    return;
   }
-  if (!parts.length) { chatEl.innerHTML = '<div class="hint">Nothing said yet.</div>'; liveBubbleEl = null; return; }
   chatEl.innerHTML = parts.join("");
-  liveBubbleEl = liveDelta ? chatEl.querySelector(".msg.live") : null;
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 
-// Append a streamed delta to the live bubble. No DOM work happens here: the two
-// strings grow and a paint is scheduled. A fast backend delivers hundreds of
-// deltas per second, and one paint re-parses the whole chain of thought and
-// rewrites the bubble - doing that per delta made the page fall behind the
-// stream, and the backlog then arrived in a burst that read as a freeze.
-function accumulateDelta(payload) {
-  if (!liveDelta || liveDelta.side !== payload.side) {
-    liveDelta = { side: payload.side, content: "", reasoning: "" };
-    livePendingSep = { content: false, reasoning: false };
-  }
-  // If we just crossed a tool boundary, separate this phase from the previous
-  // one with a horizontal rule in whichever stream is being continued - the
-  // same way the final merged conversation entry does it.
-  if (payload.content) {
-    if (livePendingSep.content) { liveDelta.content += STREAM_SEP; livePendingSep.content = false; }
-    liveDelta.content += payload.content;
-  }
-  if (payload.reasoning) {
-    if (livePendingSep.reasoning) { liveDelta.reasoning += STREAM_SEP; livePendingSep.reasoning = false; }
-    liveDelta.reasoning += payload.reasoning;
-  }
-  scheduleLivePaint();
-}
-
-// At most one paint per LIVE_PAINT_MS, however many deltas arrived, and the
-// wait is spent in requestAnimationFrame rather than in a timer. A 20 ms timer
-// does not deliver 20 ms: measured on Windows the gap came out at 27 ms median,
-// 32 ms at the 90th percentile, because a timer cannot resolve finer than the
-// scheduler's clock. Frames are already aligned to the display, so a 16 ms
-// budget means one paint per frame on a 60 Hz screen and one every two or three
-// frames on faster ones - and a hidden tab stops painting on its own.
-const LIVE_PAINT_MS = 16;
-let livePaintFrame = null;
-let livePaintAt = 0;
-
-function scheduleLivePaint() {
-  if (livePaintFrame !== null) return;
-  const tick = () => {
-    const now = performance.now();
-    if (now - livePaintAt < LIVE_PAINT_MS) {
-      livePaintFrame = requestAnimationFrame(tick);
-      return;
-    }
-    livePaintFrame = null;
-    livePaintAt = now;
-    updateLiveBubble();
-  };
-  livePaintFrame = requestAnimationFrame(tick);
-}
-
-// A dropped bubble (turn over, game replaced) must not be painted afterwards.
-function cancelLivePaint() {
-  if (livePaintFrame === null) return;
-  cancelAnimationFrame(livePaintFrame);
-  livePaintFrame = null;
-}
-
-// The live bubble's skeleton, built once per bubble. renderChat() replaces the
-// bubble's innerHTML wholesale, which detaches these nodes - liveScaffold()
-// notices and rebuilds instead of writing into orphans.
-let liveBubbleUi = null;
-// The two strings already painted, so an unchanged stream costs no DOM work.
-let livePainted = { reasoning: null, content: null };
-
-function liveScaffold() {
-  if (liveBubbleUi && liveBubbleUi.role.parentNode === liveBubbleEl) return liveBubbleUi;
-  liveBubbleEl.innerHTML =
-    '<div class="role"></div>' +
-    '<details class="cot-box"><summary>chain of thought</summary><div class="md cot"></div></details>' +
-    '<div class="md body"></div>';
-  liveBubbleUi = {
-    role: liveBubbleEl.querySelector(".role"),
-    cot: liveBubbleEl.querySelector("details.cot-box"),
-    cotBody: liveBubbleEl.querySelector(".cot"),
-    body: liveBubbleEl.querySelector(".body"),
-  };
-  livePainted = { reasoning: null, content: null };
-  return liveBubbleUi;
-}
-
-// Update only the live bubble in place so frequent deltas never rebuild the
-// whole chat (which would reset any history the user has expanded).
-function updateLiveBubble() {
-  if (!liveDelta) return;
-  if (!liveBubbleEl) { renderChat(); return; }
-
-  // Read the scroll position before touching the DOM: once the content grows,
-  // "was the reader at the bottom?" can no longer be answered.
-  const pinned = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight < 40;
-  const ui = liveScaffold();
-  ui.role.textContent = `${liveDelta.side} · writing…`;
-
-  const reasoning = liveDelta.reasoning;
-  const content = liveDelta.content;
-  if (livePainted.reasoning !== reasoning) {
-    ui.cotBody.innerHTML = renderMarkdown(reasoning);
-    ui.cot.style.display = reasoning ? "" : "none";
-    livePainted.reasoning = reasoning;
-  }
-  if (livePainted.content !== content) {
-    ui.body.innerHTML = content ? renderMarkdown(content) : "";
-    livePainted.content = content;
-  }
-
-  // Expanded while still thinking, collapsed once spoken content streams in -
-  // but only when that flips. Assigning `open` on every paint would undo a
-  // reader who collapsed the box to watch the moves instead.
-  const wantOpen = !content;
-  if (ui.cot.dataset.openFor !== String(wantOpen)) {
-    ui.cot.open = wantOpen;
-    ui.cot.dataset.openFor = String(wantOpen);
-  }
-
-  if (pinned) chatEl.scrollTop = chatEl.scrollHeight;
+async function sendSay() {
+  const text = sayInput.value.trim();
+  if (!text || !state || !state.say_side) return;
+  const res = await fetch("/api/say", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({side: state.say_side, text})
+  });
+  if (!res.ok) { await showApiError(res); return; }
+  sayInput.value = "";
+  await refresh();
 }
 
 function renderBanner() {
@@ -809,19 +718,16 @@ async function refresh() {
       black: {kind: null, display_name: "black"},
       white_name: "white", black_name: "black",
       turn: "white", check_status: "no check", in_check: false,
-      finished: false, result: null, conversation: [],
+      finished: false, result: null, conversation: [], say_side: null,
       halfmove_clock: 0, fullmove_number: 1, mode: "—",
       white_chat_history: [], black_chat_history: [],
     };
-    liveDelta = null;
     render();
     document.getElementById("game-meta").textContent = "no game — start a new game or load a saved one";
     document.getElementById("turn-label").textContent = "no game loaded";
     return;
   }
   state = data;
-  cancelLivePaint();
-  liveDelta = null;  // rebuild chat from the authoritative conversation
   render();
 }
 
@@ -842,6 +748,13 @@ document.getElementById("play").addEventListener("click", () => {
   if (!value) return;
   document.getElementById("san").value = "";
   sendMove(value);
+});
+
+document.getElementById("say-send").addEventListener("click", sendSay);
+sayInput.addEventListener("keydown", (e) => {
+  // Enter sends; the box is single-line by design, so there is no Shift+Enter
+  // to worry about and no reason to make the operator reach for the mouse.
+  if (e.key === "Enter") { e.preventDefault(); sendSay(); }
 });
 
 async function showApiError(res) {
@@ -978,70 +891,34 @@ function connect() {
     const payload = JSON.parse(event.data);
     if (payload.type === "connected") return;
 
-    // Token-by-token delta: update the live bubble in place, without a full
-    // refresh, so the partial text we already drew is never wiped.
-    if (payload.type === "llm_delta") { accumulateDelta(payload); return; }
+    // Nothing the model writes as plain text is shown any more: its public
+    // lines arrive through the `speak` tool. Streaming deltas have no visual
+    // consumer at all, so both are ignored.
+    if (payload.type === "llm_delta" || payload.type === "llm_message") return;
 
     if (payload.type === "game_started" || payload.type === "game_loaded") {
-      // A replacement game must not inherit the previous game's half-streamed
-      // bubble or selection. The server also stops forwarding events from a
-      // game that has been replaced, so nothing else from it can arrive.
-      liveDelta = null;
-      cancelLivePaint();
-      livePendingSep = { content: false, reasoning: false };
-      liveBubbleEl = null;
+      // A replacement game must not inherit the previous game's selection. The
+      // server also stops forwarding events from a game that has been
+      // replaced, so nothing else from it can arrive.
       selected = null;
+      sayInput.value = "";
       loadSavedGames();
       loadProfiles();
       scheduleRefresh();
       return;
     }
 
-    // A new turn begins: drop the previous live bubble so the next model reply
-    // starts clean. We deliberately do NOT refresh here - the previous turn
-    // always ended with an authoritative refresh, and a refresh now could land
-    // after the first streaming deltas and wipe them before round two streams,
-    // which would make round two start a fresh bubble and silently drop round
-    // one's thinking.
-    if (payload.type === "turn_start") {
-      liveDelta = null;
-      cancelLivePaint();
-      livePendingSep = { content: false, reasoning: false };
-      liveBubbleEl = null;
-      return;
-    }
+    // A turn starting or a tool running says nothing about who said what - only
+    // state-changing events (a remark, a move, a result) are worth a repaint.
+    // Refreshing on all of them would repaint the board dozens of times per
+    // turn for no visible change.
+    if (payload.type === "turn_start" || payload.type === "tool_call" ||
+        payload.type === "tool_result" || payload.type === "user_prompt" ||
+        payload.type === "nudge") return;
 
-    // Tool calls/results happen in the MIDDLE of a turn (think -> tool -> think).
-    // They never change the board, so we must NOT refresh and wipe the live
-    // bubble. Instead flag that the next delta needs a horizontal rule, so the
-    // earlier thinking stays visible and the phases remain separated the same
-    // way the final merged conversation entry joins them.
-    if (payload.type === "tool_call" || payload.type === "tool_result") {
-      if (liveDelta) {
-        livePendingSep.content = !!liveDelta.content;
-        livePendingSep.reasoning = !!liveDelta.reasoning;
-      }
-      return;
-    }
-
-    // user_prompt / nudge carry no visible text and can arrive while the live
-    // bubble is being built; ignore them so they never trigger a refresh that
-    // would wipe in-progress streaming.
-    if (payload.type === "user_prompt" || payload.type === "nudge") return;
-
-    // llm_message marks the end of one model reply inside a turn. While we are
-    // actively streaming (liveDelta set) the bubble already shows the text, so
-    // skip the refresh; for non-streaming clients (no deltas arrived) refresh to
-    // reveal the spoken text.
-    if (payload.type === "llm_message") {
-      if (!liveDelta) scheduleRefresh();
-      return;
-    }
-
-    // Everything else (move, state, game_over, talk, resign, llm_error,
-    // fallback_move, ...) means the turn is done or the board changed: rebuild
-    // from the authoritative state, which replaces the live bubble with the
-    // final merged conversation.
+    // say / move / state / game_over / resign / llm_error / fallback_move: the
+    // authoritative state changed. Rebuilding from it is what prints the new
+    // bubble, and there is no locally drawn text to lose any more.
     scheduleRefresh();
   });
   source.addEventListener("error", () => {
@@ -1062,10 +939,8 @@ function connect() {
   setInterval(loadSavedGames, 30000);
   // Safety net: while an LLM is to move, poll as well as listen, so the board
   // still catches up if the event stream drops. Also revive a dead stream.
-  // While a stream is in flight the live bubble is the source of truth - a poll
-  // refresh would wipe it mid-thought, so skip polling until the stream ends.
   setInterval(() => {
-    if (waitingOnLlm() && !liveDelta) { refresh().catch(() => {}); }
+    if (waitingOnLlm()) { refresh().catch(() => {}); }
     if (source && source.readyState === 2) connect();
   }, 2000);
 })();

@@ -1,5 +1,6 @@
 from src.engine.board import ChessEngine
-from src.prompts import turn_prompt
+from src.engine.rules import GameResult
+from src.prompts import farewell_prompt, system_prompt, turn_prompt
 
 
 def test_turn_prompt_includes_material_legal_and_opponent():
@@ -11,7 +12,22 @@ def test_turn_prompt_includes_material_legal_and_opponent():
     assert "White 39 - Black 39" in text
     assert "Legal moves" in text
     assert "e4" in text
-    assert 'Opponent\'s last spoken remark: "Your move, coward."' in text
+    assert "Opponent's remarks since your last turn:" in text
+    assert "> Your move, coward." in text
+
+
+def test_every_paragraph_of_the_opponent_is_quoted():
+    text = turn_prompt(ChessEngine(), "white", opponent_speech="First line.\n\nSecond line.")
+
+    assert "> First line.\n>\n> Second line." in text
+
+
+def test_the_system_prompt_points_at_speak_for_public_text():
+    text = system_prompt("white")
+
+    assert "PRIVATE" in text
+    assert "`speak`" in text
+    assert "does not end your turn" in " ".join(text.split())
 
 
 def test_turn_prompt_reports_no_opponent_speech():
@@ -59,3 +75,26 @@ def test_turn_prompt_states_the_piece_values_once():
     # not repeat them, which it used to do in a trailing "Values: ..." sentence.
     assert text.count("P=1") == 1
     assert "Values:" not in text
+
+
+def test_farewell_prompt_reads_the_result_from_the_players_side():
+    won = GameResult(winner="white", reason="checkmate", pgn_result="1-0")
+    lost = GameResult(winner="black", reason="checkmate", pgn_result="0-1")
+    drawn = GameResult(winner=None, reason="stalemate", pgn_result="1/2-1/2")
+
+    assert "You won (checkmate)." in farewell_prompt("white", won)
+    assert "You lost (checkmate)." in farewell_prompt("white", lost)
+    assert "The game is drawn (stalemate)." in farewell_prompt("white", drawn)
+    # The board is closed: the closing prompt must rule the playing tools out.
+    assert "`make_move`" in farewell_prompt("white", won)
+    assert "`speak`" in farewell_prompt("white", won)
+
+
+def test_farewell_prompt_carries_what_the_opponent_just_said():
+    won = GameResult(winner="white", reason="resignation", pgn_result="1-0")
+
+    quiet = farewell_prompt("white", won)
+    assert "Opponent's remarks" not in quiet
+
+    heard = farewell_prompt("white", won, "I am out.")
+    assert "Opponent's remarks since your last turn:\n> I am out." in heard

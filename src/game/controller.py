@@ -8,12 +8,13 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from src.agent.llm_client import LlmClient
-from src.agent.loop import ChatMemory, TurnOutcome, run_llm_turn
+from src.agent.loop import ChatMemory, TurnOutcome, last_words, run_llm_turn
 from src.config import AppConfig, BLACK, HUMAN, LLM, WHITE
 from src.engine.board import ChessEngine, MoveError
 from src.engine.rules import GameResult, evaluate_position, resignation_result
-from src.game.state import GameState
+from src.game.state import SEQ_KEY, GameState, speech_entries
 from src.game.storage import StoragePaths, save_game
+from src.tools.schema import SPEAK_MAX_CHARS
 
 LOGGER = logging.getLogger("src.game.controller")
 
@@ -46,6 +47,17 @@ class GameController:
             BLACK: ChatMemory(state.black_chat_history),
         }
         self._clients: Dict[str, LlmClient] = {}
+        # Highest remark number each side has already been told about, so a
+        # remark is delivered exactly once and a reloaded game does not replay
+        # the whole conversation into the next prompt.
+        self._heard: Dict[str, int] = {
+            WHITE: self._latest_remark(BLACK),
+            BLACK: self._latest_remark(WHITE),
+        }
+        # Seats that have already had the one closing exchange a finished game
+        # allows. Two code paths can ask for it (the turn that ended the game,
+        # and the controller for the other seat), so it is kept here.
+        self._farewells: set[str] = set()
 
     # ------------------------------------------------------------------ access
     @property
@@ -84,8 +96,8 @@ class GameController:
             "created_at": self.state.created_at,
             "white": self.state.white.to_dict(),
             "black": self.state.black.to_dict(),
-            "white_name": self.state.white.display_name,
-            "black_name": self.state.black.display_name,
+            "white_name": self.state.player_name(WHITE),
+            "black_name": self.state.player_name(BLACK),
             "fen": self.engine.fen,
             "ascii": self.engine.ascii,
             "unicode": self.engine.unicode,
@@ -104,6 +116,9 @@ class GameController:
                 BLACK: self.state.black_chat_history,
             },
             "conversation": self.state.conversation(),
+            # The seat allowed to type into the conversation, or null when the
+            # input must be disabled (no human seat, or the game is over).
+            "say_side": self.say_side,
             "in_check": board.is_check(),
         }
 
@@ -175,13 +190,84 @@ class GameController:
         reason = (reason or "").strip() or None
         result = resignation_result(side, reason)
         LOGGER.info("%s resigned: %s", side, reason or "(no reason given)")
-        self._finish(result)
+        self._finish(result, mover=side)
         return {"ok": True, "resigned": side, "result": result.to_dict()}
 
     def _hot_seat(self) -> bool:
         """Both seats are human, so the side to move is the one acting."""
 
         return self.state.white.kind == HUMAN and self.state.black.kind == HUMAN
+
+    @property
+    def say_side(self) -> Optional[str]:
+        """Which seat may speak right now, or ``None`` if nobody may.
+
+        A single human plays their own seat; in a hot-seat game the same screen
+        speaks for whoever is to move, so the remark is attributed to the side
+        that is actually playing. A finished game keeps the box open - the two
+        players can still shake hands - and only a matchup without a human seat
+        is silent.
+        """
+
+        if self._hot_seat():
+            return self.side_to_move
+        humans = [side for side in (WHITE, BLACK) if self.state.player(side).kind == HUMAN]
+        return humans[0] if humans else None
+
+    def say(self, side: str, text: str) -> Dict[str, Any]:
+        """Record a human's remark in the conversation.
+
+        It is stored straight away and handed to the opponent at the start of
+        their next turn, so somebody thinking about their move can be heckled
+        without interrupting the turn in flight. Once the game is over nobody
+        is handed anything any more, but the box stays open for a last word:
+        those remarks carry no ply and never become a PGN comment.
+        """
+
+        side = (side or "").strip().lower()
+        if side not in (WHITE, BLACK):
+            return self._error(
+                "invalid_input", "Invalid input: side must be 'white' or 'black'."
+            )
+        if self.state.player(side).kind != HUMAN:
+            return self._error(
+                "illegal_state",
+                f"{side.capitalize()} is an LLM seat; only a human can speak.",
+            )
+        expected = self.say_side
+        # Once the game is over there is no turn left to own the floor, so a
+        # hot-seat pair may both say their goodbyes; before that the seat on
+        # move is the only one that speaks.
+        if expected is not None and side != expected and not self.state.finished:
+            return self._error(
+                "illegal_state", f"It is {expected}'s turn to speak, not {side}'s."
+            )
+        if not isinstance(text, str) or not text.strip():
+            return self._error(
+                "invalid_input", "Invalid input: the message must not be empty."
+            )
+        text = text.strip()
+        if len(text) > SPEAK_MAX_CHARS:
+            return self._error(
+                "invalid_input",
+                f"Invalid input: the message is {len(text)} characters, "
+                f"the limit is {SPEAK_MAX_CHARS}.",
+            )
+
+        message = self.state.speak(
+            side, text, 0 if self.state.finished else self.engine.ply + 1
+        )
+        LOGGER.info("%s said: %s", side, text)
+        self.emit(
+            {
+                "type": "say",
+                "side": side,
+                "text": text,
+                "seq": message[SEQ_KEY],
+            }
+        )
+        self.save()
+        return {"ok": True, "side": side, "text": text, "seq": message[SEQ_KEY]}
 
     def run_llm_turn(self) -> Dict[str, Any]:
         """Run the LLM turn for whichever side is to move. Blocking."""
@@ -207,7 +293,8 @@ class GameController:
                 emit=self.emit,
                 rng=self.rng,
                 keep_reasoning=client.reasoning_enabled(),
-                opponent_speech=self._last_opponent_speech(side),
+                opponent_speech=self._opponent_speech(side),
+                stamp=self.state.stamp,
             )
         except Exception as exc:  # noqa: BLE001 - never kill the game loop
             LOGGER.exception("LLM turn for %s crashed: %s", side, exc)
@@ -215,12 +302,10 @@ class GameController:
             return {"status": "error", "side": side, "message": str(exc)}
 
         self.state.set_chat(side, memory.messages)
-        for text in outcome.spoken:
-            self.emit({"type": "talk", "side": side, "ply": ply_before, "text": text})
 
         if outcome.resigned:
             result = resignation_result(side, outcome.resign_reason)
-            self._finish(result)
+            self._finish(result, mover=side)
             return {
                 "status": "resigned",
                 "side": side,
@@ -256,18 +341,31 @@ class GameController:
         return {"status": "waiting_human", "side": self.side_to_move}
 
     # ----------------------------------------------------------------- internals
-    def _last_opponent_speech(self, side: str) -> Optional[str]:
-        """The opponent's most recent public remark, or ``None`` if they are silent.
+    def _latest_remark(self, side: str) -> int:
+        """Highest remark number in one side's history (0 when it never spoke)."""
 
-        Only assistant messages with non-empty public text are considered, so a
-        turn that only called tools (no spoken line) is skipped.
+        return max(
+            (int(m.get(SEQ_KEY) or 0) for m in self.state.chat(side)), default=0
+        )
+
+    def _opponent_speech(self, side: str) -> Optional[str]:
+        """Everything the opponent said since this side last heard from them.
+
+        Both kinds of remark count - a model's ``speak`` calls and the
+        operator's typed lines - and they are delivered once: the watermark is
+        advanced here, so the same heckle is not repeated into every prompt for
+        the rest of the game.
         """
 
         opponent = BLACK if side == WHITE else WHITE
-        for message in reversed(self.state.chat(opponent)):
-            if message.get("role") == "assistant" and (message.get("content") or "").strip():
-                return message["content"].strip()
-        return None
+        heard = self._heard.get(side, 0)
+        fresh = [
+            entry["text"]
+            for entry in speech_entries(self.state.chat(opponent), opponent)
+            if entry[SEQ_KEY] > heard
+        ]
+        self._heard[side] = max(self._latest_remark(opponent), heard)
+        return "\n\n".join(fresh) if fresh else None
 
     def _parse_move(self, san_or_uci: str):
         text = (san_or_uci or "").strip()
@@ -320,14 +418,62 @@ class GameController:
             self.save()
             self.emit({"type": "state", "reason": "move"})
             return
-        self._finish(result)
+        self._finish(result, mover=side)
 
-    def _finish(self, result: GameResult) -> None:
+    def _finish(self, result: GameResult, mover: Optional[str] = None) -> None:
+        """Close the game and let the other seat say goodbye.
+
+        ``mover`` is the side whose action ended the game. It has already had
+        its closing exchange inside the turn that ended it, so only the other
+        seat is asked here - and only if a model is sitting in it. A human can
+        type whenever they like (the box stays open), so this is a no-op there.
+        """
+
         self.state.result = result.to_dict()
         self.state.finished = True
         LOGGER.info("Game over: %s (%s)", result.reason, result.detail)
         self.save()
         self.emit({"type": "game_over", "result": result.to_dict()})
+        for side in (WHITE, BLACK):
+            if side != mover:
+                self._farewell(side, result)
+
+    def _farewell(self, side: str, result: GameResult) -> None:
+        """Ask a model seat for its one closing remark.
+
+        The losing seat of a resignation used to get nothing at all, because
+        its own turn was the one that ended the game - and the winner of a
+        resignation got nothing either, because the opposing turn simply never
+        started. Both are asked from here now.
+        """
+
+        if side in self._farewells:
+            return
+        if self.state.player(side).kind != LLM:
+            return
+        self._farewells.add(side)
+        memory = self.memories[side]
+        try:
+            client = self.client(side)
+            last_words(
+                client=client,
+                engine=self.engine,
+                side=side,
+                memory=memory,
+                config=self.config,
+                result=result,
+                emit=self.emit,
+                keep_reasoning=client.reasoning_enabled(),
+                stamp=self.state.stamp,
+                # The opponent's goodbye is the one remark this seat has never
+                # been given, and there is no next turn to put it in.
+                opponent_speech=self._opponent_speech(side),
+            )
+        except Exception:  # noqa: BLE001 - the game is over either way
+            LOGGER.exception("Closing remark for %s failed", side)
+            return
+        self.state.set_chat(side, memory.messages)
+        self.save()
 
     def save(self) -> None:
         if not self.config.storage.autosave:

@@ -3,6 +3,7 @@ import json
 from src.config import DrawConfig
 from src.engine.board import ChessEngine
 from src.tools.executor import ToolExecutor
+from src.tools.schema import SPEAK_MAX_CHARS
 
 
 def call(executor, name, arguments=None):
@@ -149,3 +150,53 @@ def test_terminal_turn_blocks_further_committing_tools():
     payload = call(ex, "resign")
     assert payload["ok"] is False
     assert payload["error"]["category"] == "illegal_state"
+
+
+# ------------------------------------------------------------------- speaking
+def test_speak_records_a_remark_without_ending_the_turn():
+    ex = ToolExecutor(ChessEngine(), "white")
+    payload = call(ex, "speak", {"text": "  Your centre is a bluff.  "})
+
+    assert payload["ok"] is True
+    assert payload["spoken"] == "Your centre is a bluff."
+    assert ex.said == ["Your centre is a bluff."]
+    assert ex.terminal is False, "speaking must not end the turn"
+
+
+def test_speak_can_be_called_several_times_in_one_turn():
+    ex = ToolExecutor(ChessEngine(), "white")
+    call(ex, "speak", {"text": "First."})
+    call(ex, "speak", {"text": "Second."})
+    assert ex.said == ["First.", "Second."]
+
+
+def test_speak_rejects_empty_text_and_bad_types():
+    ex = ToolExecutor(ChessEngine(), "white")
+    for arguments in ({"text": "   "}, {"text": 42}, {}):
+        payload = call(ex, "speak", arguments)
+        assert payload["ok"] is False
+        assert payload["error"]["category"] == "invalid_input"
+    assert ex.said == []
+
+
+def test_speak_is_length_limited_instead_of_truncated():
+    ex = ToolExecutor(ChessEngine(), "white")
+    payload = call(ex, "speak", {"text": "x" * (SPEAK_MAX_CHARS + 1)})
+
+    assert payload["ok"] is False
+    assert payload["error"]["category"] == "invalid_input"
+    assert str(SPEAK_MAX_CHARS) in payload["error"]["message"]
+    assert ex.said == []
+
+
+def test_speak_still_works_after_the_turn_is_over():
+    """A model that plays its move and then talks must not lose the sentence."""
+
+    ex = ToolExecutor(ChessEngine(), "white")
+    call(ex, "make_move", {"move": "e4"})
+    payload = call(ex, "speak", {"text": "Good game."})
+
+    assert payload["ok"] is True
+    assert ex.said == ["Good game."]
+    # Everything that would change the game stays closed.
+    assert call(ex, "make_move", {"move": "e5"})["error"]["category"] == "illegal_state"

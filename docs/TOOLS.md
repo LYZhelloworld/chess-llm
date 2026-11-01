@@ -125,6 +125,35 @@ Arguments: none. Returns SAN strings only:
 On failure `ok` is `false`, `steps` shows how far the line got, and `message`
 explains the alternation rule before it mentions the engine error.
 
+## speak
+
+```json
+{"text": "Your king looks lonely over there."}
+```
+
+The **only** channel for public speech. Everything a model writes as plain text
+stays private: it is stored in the transcript and shown nowhere. What goes
+through `speak` appears in the conversation on the game screen and is quoted to
+the opponent before their next turn.
+
+- Optional, and callable several times in one turn.
+- Does **not** end the turn; only `make_move` and `resign` do.
+- `text` is limited to `SPEAK_MAX_CHARS` (500) characters. A longer call is
+  rejected with `invalid_input` instead of being truncated, so the model has to
+  say it shorter rather than silently losing an argument.
+- A blank line inside `text` starts a new bubble in the UI. The whole remark is
+  still one entry in the transcript and one whole remark to the opponent.
+- Still accepted after the turn is over. The loop uses it for the one closing
+  remark a model may make once the game has ended, and the controller calls it
+  for the model whose opponent ended the game; a model that plays its move and
+  then says something in the same answer keeps the sentence. Every other tool is
+  refused with `illegal_state` once `make_move` or `resign` ran.
+
+```json
+{"ok": true, "tool": "speak", "spoken": "Your king looks lonely over there.",
+ "message": "Said out loud. Your turn continues."}
+```
+
 ## make_move
 
 ```json

@@ -200,6 +200,50 @@ def test_resign_requires_a_running_game(tmp_path):
     assert "No game" in res.json()["detail"]
 
 
+# ----------------------------------------------------------------------- say
+def test_say_records_a_remark_for_the_human_seat(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/say", json={"text": "Your move."})
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["side"] == "white", "the side to move speaks in a hot-seat game"
+    conversation = client.get("/api/state").json()["conversation"]
+    assert conversation[-1]["text"] == "Your move."
+    assert conversation[-1]["side"] == "white"
+
+
+def test_say_needs_a_running_game(tmp_path):
+    client, _ = make_client(tmp_path)
+
+    res = client.post("/api/say", json={"text": "Hello?"})
+
+    assert res.status_code == 400
+    assert "No game" in res.json()["detail"]
+
+
+def test_say_is_rejected_for_a_seat_that_may_not_speak(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/say", json={"side": "black", "text": "Not my turn."})
+
+    assert res.status_code == 400
+    assert res.json()["error"]["category"] == "illegal_state"
+
+
+def test_say_rejects_empty_text(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/new", json={"white": "human", "black": "human"})
+
+    res = client.post("/api/say", json={"text": "   "})
+
+    assert res.status_code == 400
+    assert res.json()["error"]["category"] == "invalid_input"
+
+
 # ----------------------------------------------------------- local-only access
 def test_a_request_addressed_to_another_name_is_refused(tmp_path):
     """DNS rebinding: the request arrives from loopback but is not for us.

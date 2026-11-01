@@ -15,12 +15,16 @@ Rewritten from scratch after every move, so the file is always a valid,
 complete game. Headers: `Event`, `Site`, `Date`, `Round`, `White`, `Black`,
 `WhiteKind`, `BlackKind`, `WhiteModel`, `BlackModel`, `Result`, `Termination`,
 `PlyCount` (plus `FEN`/`SetUp` when the game did not start from the initial
-position). Each agent's public remarks for that ply are attached as a move
-comment, derived from the chat history of the side that played it, e.g.:
+position). What each side said before its move is attached as a move comment,
+derived from the chat history of the side that played it:
 
 ```
 1. e4 { Let me check the legal moves first. | I will play e4. } 1... e5 2. Nf3 1/2-1/2
 ```
+
+Only remarks from that side's *own* turn land there. A line the human types
+while the opponent is thinking is part of the conversation, but it is not that
+opponent's move comment.
 
 ## Game JSON (`games/*.json`)
 
@@ -34,11 +38,13 @@ comment, derived from the chat history of the side that played it, e.g.:
   "black": {"kind": "llm", "profile": "openai", "model": "gpt-4o-mini", "label": ""},
   "moves_san": ["e4", "e5"],
   "moves_uci": ["e2e4", "e7e5"],
-  "white_chat_history": [],
+  "white_chat_history": [
+    {"role": "user", "content": "That is a bold pawn.", "spoken": true, "seq": 1, "ply": 1}
+  ],
   "black_chat_history": [
     {"role": "user", "content": "It is your turn. You play black. ..."},
-    {"role": "assistant", "content": "Checking my options.", "reasoning": "If I take on e4 ...", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "get_legal_moves", "arguments": "{}"}}]},
-    {"role": "tool", "tool_call_id": "call_1", "name": "get_legal_moves", "content": "{\n  \"ok\": true, ... }"}
+    {"role": "assistant", "content": "", "reasoning": "If I take on e4 ...", "seq": 2, "ply": 2, "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "speak", "arguments": "{\"text\": \"Hold my rook.\"}"}}]},
+    {"role": "tool", "tool_call_id": "call_1", "name": "speak", "content": "{\n  \"ok\": true, ... }"}
   ],
   "result": {"winner": null, "reason": "repetition", "detail": "...", "pgn_result": "1/2-1/2"},
   "finished": true
@@ -52,15 +58,27 @@ Rules:
   prompt is not.
 - `white_chat_history` and `black_chat_history` are both written in every
   matchup - for LLM vs LLM both are populated.
+- **A remark is not a field of its own.** A model's remark is the `text`
+  argument of a `speak` tool call on an assistant message; a human's remark is a
+  `user` message flagged `"spoken": true`. There is no separate talk list, and
+  the assistant's `content` is private text that is never displayed.
 - An assistant message carries a `reasoning` key when the backend returned a
   chain of thought (`reasoning_content`, `reasoning`, `thinking`, ...). It is
-  stored next to `content` and is the only place remarks live - there is no
-  separate talk list.
-- PGN move comments and the UI's merged conversation are both derived from
-  these histories: a ply maps to the side that played it and to that side's
-  n-th turn (a turn starts at every `user` message).
+  stored for debugging only.
+- Three bookkeeping keys are written next to a remark and stripped again before
+  the history goes back to a backend: `seq` puts both sides' remarks on one
+  timeline (the two histories are separate lists, so a line typed while the
+  opponent was thinking could not be placed otherwise), `ply` is the 1-based ply
+  the remark belongs to (that is what the PGN comment uses; `0` means it was
+  said after the game ended, so it belongs to no move and never becomes a
+  comment), and `spoken` marks a human's `user` message. See `_for_backend()` in
+  `src/agent/loop.py`.
+- The UI's conversation and the PGN comments are both derived from these two
+  histories, so nothing can drift: the same stored remark feeds both.
 - `moves_uci` is kept alongside `moves_san` so a move can be replayed even if
   the SAN is ambiguous.
+- Games saved before the `speak` tool existed have no remarks at all, and open
+  with an empty conversation. Their `content` is not used as a fallback.
 
 ## Logs (`logs/*.log`)
 

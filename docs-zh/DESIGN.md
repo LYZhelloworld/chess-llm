@@ -50,7 +50,7 @@ Agent 循环外没有任何模块 import 提示词模块。
 | `src/tools/executor.py` | 执行一次工具调用，始终以 JSON 应答 |
 | `src/agent/llm_client.py` | OpenAI 兼容客户端、重试、`AssistantMessage` |
 | `src/agent/loop.py` | 回合循环、对话记忆与滑动上下文窗口 |
-| `src/game/state.py` | 可序列化的 `GameState` / `PlayerSpec` |
+| `src/game/state.py` | 可序列化的 `GameState` / `PlayerSpec`，以及发言时间线 |
 | `src/game/controller.py` | 该谁走、落子后的记账、保存 |
 | `src/game/storage.py` | PGN + JSON 写入、日志初始化、对局加载 |
 | `src/ui/server.py` | REST 端点与 SSE 事件流 |
@@ -74,11 +74,22 @@ Agent 循环外没有任何模块 import 提示词模块。
 - **只支持 OpenAI 兼容接口。** 一条代码路径（`chat.completions` + `tools`）覆盖
   OpenAI、DeepSeek、Moonshot、vLLM、Ollama 以及任何说这个协议的后端；换供应商
   只是换一个 `config.yaml` profile。
-- **桌上发言会注入上下文。** 模型以普通文本写出的内容会显示在 Web 界面、存进对局
-  JSON 和 PGN 注释，并作为 `Opponent's last spoken remark` 转发给对手，用于对手下一手
-  开局。这样 Agent 可以接话回击，代价是会受到对方提示词注入的影响。详见 `LLM-LOOP.md`。
-- **思维链是提示词层面的。** 系统提示要求模型私下推理、公开文本简短；不发送任何
-  厂商专属的 `reasoning_effort` 参数，因此同一套代码到处都能用。
+- **只有 `speak` 是公开的。** 模型写的普通文本是私有的：只存进对话记录供它自己回忆
+  和排查问题，谁都不会看到。观众和对手听到的一切都经由 `speak` 工具，它免费
+  （不结束回合）且单次最多 500 字符。这样"说话"只有一个明确通道，而不是把模型思考
+  时吐出的每个 token 都当成广播。
+- **人类用同一个通道。** 界面上有一个输入框，敲进去的内容会作为人类座位的发言存储、
+  显示在对话里，并在对手下一个回合的提示中被引用。人类随时可以发言——包括对手正在
+  思考的时候，也包括终局之后——但绝不会插进一个已经构造好提示的回合中间。
+- **终局也要说一句。** 结果定下来之后双方都还能说最后一句话：结束对局的模型是因为
+  `run_llm_turn` 在提交性工具之后额外发一次只允许 `speak` 的请求，另一个模型是因为
+  `GameController._finish` 代它请求（它的回合已经不会跑了），人类是因为输入框保持
+  可用。这些发言不属于任何一步，因此永远不会变成 PGN 注释。
+- **桌上发言会注入上下文。** 对手的发言会在下一回合开头以
+  `Opponent's remarks since your last turn` 转发过去（见 `LLM-LOOP.md`）。这样 Agent
+  可以接话回击，代价是会受到对方提示词注入的影响。
+- **思维链是提示词层面的。** 系统提示要求模型私下推理；不发送任何厂商专属的
+  `reasoning_effort` 参数，因此同一套代码到处都能用。思维链会被存储，但永不展示。
 - **`try_make_move` 是沙盒。** 它在棋盘的副本上（或在调用方提供的 FEN 上）演算，
   绝不改动正在进行的对局。
 - **`make_move` 很严格。** 只接受 `get_legal_moves` 返回的字符串，每次一步，调用
@@ -95,20 +106,31 @@ Agent 循环外没有任何模块 import 提示词模块。
 
 - `GET /` - 单页应用。
 - `GET /api/state` - 完整快照：FEN、ASCII、合法着法、着法列表、双方对话历史、
-  界面展示用的合并 `conversation`、结果。
+  界面展示用的对话 `conversation`、`say_side`（输入框代表的座位；对阵里没有人类座位时
+  为 `null`）、结果。
 - `POST /api/move` - `{ "move": "Nf3" }`（SAN 或 UCI）。
+- `POST /api/say` - `{ "side": "white", "text": "..." }`（side 可省略，服务端会退回到
+  那个可以发言的座位）。除非该座位是人类、且（热座模式且尚未终局时）是当前行棋方，
+  否则返回 `400`；终局之后人类的两边都接受。
 - `POST /api/resign` - `{ "side": "white", "reason": "..." }`（reason 可选）。
   除非该座位是人类（热座模式下还必须是当前行棋方），否则返回 `400`。
 - `POST /api/new` - 开新局，逐边选择 human/llm。
 - `POST /api/load` - `{ "game_id": "game_20260925_195646" }`。
 - `GET /api/games` - 已保存的对局 id。
 - `GET /api/events` - Server-Sent Events（`turn_start`、`tool_call`、
-  `tool_result`、`llm_message`、`llm_delta`、`move`、`game_over` 等）。流式事件
-  （`llm_delta`）就地更新气泡，其余事件才重新拉取状态。delta 按 token 到达，远快于
-  页面能有效重绘的速度，所以浏览器会合并它们，活动气泡在 `requestAnimationFrame`
-  回调里按 `LIVE_PAINT_MS`（16 ms）最多重绘一次——60 Hz 屏幕上等于每帧一次。
-  起作用的是这个上限：重绘频率因此与后端吐 token 的快慢无关。用定时器不行：
-  `setTimeout(20)` 在 Windows 上实测中位数为 27 ms，而帧本来就与显示器对齐。
+  `tool_result`、`say`、`llm_message`、`llm_delta`、`move`、`game_over` 等）。
+  页面只在会改变已存状态的事件（`say`、`move`、`state`、`game_over` 等）上重新拉取
+  `GET /api/state`；流式事件（`llm_delta`）载着已经无人展示的文本，直接忽略。之所以
+  仍然推送 delta，是为了让事件流的消费者能看出一个回合还在推进。
+
+布局是左右两栏：左边棋盘，右边上为对局卡、下为对话。窗口变窄时三块改为上下堆叠并
+允许页面滚动——把字号缩到能左右并排放下的程度会看不清。对话区是即时通讯式的消息流
+（一条发言按空行拆成多个气泡），"本地"一方在右侧：只有一个人在棋盘前时是人类座位，
+否则是白方（LLM vs LLM 与热座模式，此时没有旁观者视角）。消息流里只放发言：不显示
+"正在输入"指示——模型是否在思考由对局卡的状态行回答，气泡反而会让人以为它说了话。
+热座模式下同一块屏幕代表当前行棋方，所以棋局进行中只有那一方能
+输入——气泡也就标成 `White` / `Black`，而不是都叫 `Human`；终局之后没有回合再占据
+发言权，输入框对双方都保持可用。
 
 LLM 回合在 worker 线程里跑（`asyncio.to_thread`），这样事件循环仍能响应请求；
 并用一把锁保证同一时刻只有一个回合在跑。由于一个回合可能比它所属的对局活得更久，

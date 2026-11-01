@@ -10,9 +10,11 @@ from typing import Any, Callable, Dict, List, Optional, Protocol
 from src.agent.llm_client import REASONING_KEY, AssistantMessage, ToolCall
 from src.config import AppConfig
 from src.engine.board import ChessEngine
+from src.engine.rules import GameResult, evaluate_position, resignation_result
 from src.prompts import (
     FALLBACK_NOTICE,
     NUDGE_NO_MOVE,
+    farewell_prompt,
     system_prompt,
     turn_prompt,
 )
@@ -70,7 +72,7 @@ class ChatMemory:
             groups = groups[-max_turns:]
         windowed: List[Dict[str, Any]] = []
         for group in groups:
-            windowed.extend(group if keep_reasoning else _without_reasoning(group))
+            windowed.extend(_for_backend(group, keep_reasoning))
         # Drop leading orphan tool results so the API never sees a result
         # without the tool call that produced it.
         while windowed and windowed[0].get("role") == "tool":
@@ -85,19 +87,29 @@ def _ask_client(client: Any, method: str, default: bool) -> bool:
     return default if not callable(function) else bool(function())
 
 
-def _without_reasoning(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Strip the stored chain of thought before sending history to a backend.
+# Keys a backend understands on a chat message. Everything else the transcript
+# carries (the chain of thought, the shared remark counter, the ply a remark
+# belongs to, the human-speech flag) is bookkeeping for us and is stripped here.
+_API_MESSAGE_KEYS = frozenset(
+    {"role", "content", "name", "tool_calls", "tool_call_id"}
+)
 
-    The reasoning is kept in the transcript (and in the game JSON) because it
-    is useful to read, but most backends reject it on the way back in.
+
+def _for_backend(
+    messages: List[Dict[str, Any]], keep_reasoning: bool = True
+) -> List[Dict[str, Any]]:
+    """Reduce transcript messages to what a backend accepts.
+
+    The chain of thought is kept in the transcript (and in the game JSON)
+    because it is useful to read, but most backends reject it on the way back
+    in - hence the switch. The reply stamps never leave this process.
     """
 
-    cleaned: List[Dict[str, Any]] = []
-    for message in messages:
-        if REASONING_KEY in message:
-            message = {k: v for k, v in message.items() if k != REASONING_KEY}
-        cleaned.append(message)
-    return cleaned
+    allowed = _API_MESSAGE_KEYS | {REASONING_KEY} if keep_reasoning else _API_MESSAGE_KEYS
+    return [
+        {key: value for key, value in message.items() if key in allowed}
+        for message in messages
+    ]
 
 
 @dataclass
@@ -107,6 +119,8 @@ class TurnOutcome:
     resigned: bool = False
     resign_reason: Optional[str] = None
     fallback_random: bool = False
+    # Texts accepted by the ``speak`` tool, in the order they were said. Plain
+    # model prose is private and never lands here.
     spoken: List[str] = field(default_factory=list)
     tool_events: List[Dict[str, Any]] = field(default_factory=list)
     transcript: List[Dict[str, Any]] = field(default_factory=list)
@@ -125,11 +139,15 @@ def run_llm_turn(
     executor_factory: Optional[Callable[[ChessEngine, str], ToolExecutor]] = None,
     keep_reasoning: Optional[bool] = None,
     opponent_speech: Optional[str] = None,
+    stamp: Optional[Callable[[Dict[str, Any], int], None]] = None,
 ) -> TurnOutcome:
     """Run one agent turn until it plays a move, resigns or runs out of turns.
 
     ``keep_reasoning`` says whether the stored chain of thought may be sent back
-    to the model; ``None`` falls back to what the client reports.
+    to the model; ``None`` falls back to what the client reports. ``stamp``
+    marks a message that carries speech with its place on the game's shared
+    timeline (see ``src.game.state``); without it the remarks still work, they
+    just cannot be ordered against the opponent's once the page is reloaded.
     """
 
     emit = emit or (lambda _event: None)
@@ -192,7 +210,7 @@ def run_llm_turn(
                 )
                 keep_reasoning = False
                 try:
-                    retry = messages[:1] + _without_reasoning(messages[1:])
+                    retry = messages[:1] + _for_backend(messages[1:], keep_reasoning=False)
                     response = client.chat(retry, TOOL_DEFINITIONS)
                 except Exception as retry_exc:  # noqa: BLE001
                     exc = retry_exc
@@ -205,11 +223,14 @@ def run_llm_turn(
                 return _fallback(engine, side, memory, outcome, emit, rng)
 
         assistant_message = response.to_message()
+        # A message that speaks gets its timeline slot now: a human may type
+        # while the model is still thinking, and their remark has to sort before
+        # everything this answer goes on to say.
+        if stamp is not None and any(call.name == "speak" for call in response.tool_calls):
+            stamp(assistant_message, engine.ply + 1)
         memory.add(assistant_message)
         outcome.transcript.append(assistant_message)
 
-        if response.content:
-            outcome.spoken.append(response.content)
         emit(
             {
                 "type": "llm_message",
@@ -236,6 +257,19 @@ def run_llm_turn(
             if executor.resigned:
                 outcome.resigned = True
                 outcome.resign_reason = executor.resign_reason
+            last_words(
+                client=client,
+                engine=engine,
+                side=side,
+                memory=memory,
+                config=config,
+                result=_final_result(engine, side, executor, config),
+                emit=emit,
+                outcome=outcome,
+                keep_reasoning=keep_reasoning,
+                chat_kwargs=chat_kwargs,
+                stamp=stamp,
+            )
             return outcome
 
     LOGGER.warning(
@@ -243,7 +277,122 @@ def run_llm_turn(
         side,
         config.loop.max_tool_turns,
     )
-    return _fallback(engine, side, memory, outcome, emit, rng)
+    outcome = _fallback(engine, side, memory, outcome, emit, rng)
+    # A random move can finish the game too (mate, stalemate), and the model
+    # still deserves its closing line.
+    if evaluate_position(engine.board, config.draw) is not None:
+        last_words(
+            client=client,
+            engine=engine,
+            side=side,
+            memory=memory,
+            config=config,
+            emit=emit,
+            outcome=outcome,
+            keep_reasoning=keep_reasoning or False,
+            chat_kwargs=chat_kwargs,
+            stamp=stamp,
+        )
+    return outcome
+
+
+def _final_result(
+    engine: ChessEngine, side: str, executor: ToolExecutor, config: AppConfig
+) -> Optional[GameResult]:
+    """How the turn ended, for the closing prompt.
+
+    A resignation leaves a perfectly playable board behind, so it has to be read
+    off the tool that caused it rather than off the position.
+    """
+
+    if executor.resigned:
+        return resignation_result(side, executor.resign_reason)
+    return evaluate_position(engine.board, config.draw)
+
+
+def last_words(
+    client: ChatClient,
+    engine: ChessEngine,
+    side: str,
+    memory: ChatMemory,
+    config: AppConfig,
+    result: Optional[GameResult] = None,
+    emit: Optional[EmitFn] = None,
+    outcome: Optional[TurnOutcome] = None,
+    keep_reasoning: bool = True,
+    chat_kwargs: Optional[Dict[str, Any]] = None,
+    stamp: Optional[Callable[[Dict[str, Any], int], None]] = None,
+    opponent_speech: Optional[str] = None,
+) -> None:
+    """One closing exchange once the game has ended.
+
+    The turn returns as soon as the committing tool runs, so a model that has
+    just delivered mate - or resigned - would otherwise never get to say
+    anything about it. This gives it a single request to do so. Exactly one:
+    the result is decided, so retrying or arguing about it would only add noise
+    and latency, and a failure here is logged and swallowed because the game is
+    over either way.
+
+    ``result`` is how the game ended; when it is omitted the board is asked,
+    which is right for mate and the draws but not for a resignation. The
+    controller calls this for the seat that did *not* end the game, so both
+    players of a finished game get their last word.
+    """
+
+    if result is None:
+        result = evaluate_position(engine.board, config.draw)
+    if result is None:
+        return
+
+    emit = emit or (lambda _event: None)
+    outcome = outcome or TurnOutcome()
+    chat_kwargs = chat_kwargs or {}
+
+    # The turn's own executor is already gone by the time the controller asks
+    # for a remark, so this exchange gets a terminal one of its own: `speak` is
+    # the only tool left open on it.
+    executor = ToolExecutor(engine, side, config.draw)
+    executor.terminal = True
+    executor.committed_move = outcome.move_san
+
+    message: Dict[str, Any] = {
+        "role": "user",
+        "content": farewell_prompt(side, result, opponent_speech),
+    }
+    memory.add(message)
+    outcome.transcript.append(message)
+    emit({"type": "user_prompt", "side": side, "content": message["content"]})
+
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": system_prompt(side)}
+    ]
+    messages.extend(memory.window(config.loop.context_turns, keep_reasoning))
+    try:
+        response = client.chat(messages, TOOL_DEFINITIONS, **chat_kwargs)
+    except Exception as exc:  # noqa: BLE001 - the game is already over
+        LOGGER.warning("Closing remark for %s could not be requested: %s", side, exc)
+        return
+
+    assistant_message = response.to_message()
+    if stamp is not None and any(call.name == "speak" for call in response.tool_calls):
+        # 0 = said after the game: it belongs to no move, so it never turns into
+        # a PGN comment.
+        stamp(assistant_message, 0)
+    memory.add(assistant_message)
+    outcome.transcript.append(assistant_message)
+    emit(
+        {
+            "type": "llm_message",
+            "side": side,
+            "content": response.content or "",
+            REASONING_KEY: response.reasoning or "",
+        }
+    )
+    # The executor is already terminal, so anything except `speak` (and the
+    # read-only tools) comes back as illegal_state - exactly what the prompt
+    # asked the model not to do.
+    for call in response.tool_calls:
+        _run_tool(executor, call, side, memory, outcome, emit)
 
 
 def _run_tool(
@@ -262,6 +411,7 @@ def _run_tool(
             "arguments": call.arguments,
         }
     )
+    said_before = len(executor.said)
     result = executor.execute(call.name, call.arguments)
     tool_message: Dict[str, Any] = {
         "role": "tool",
@@ -282,6 +432,11 @@ def _run_tool(
             "result": result,
         }
     )
+    # The executor keeps only the remarks it accepted, so a rejected call never
+    # reaches the conversation - the same thing the rebuilt view will show.
+    if call.name == "speak" and len(executor.said) > said_before:
+        outcome.spoken.append(executor.said[-1])
+        emit({"type": "say", "side": side, "text": executor.said[-1]})
 
 
 def _fallback(

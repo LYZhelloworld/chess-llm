@@ -11,13 +11,14 @@ SYSTEM_PROMPT = """You are a grandmaster-strength chess agent playing the {side}
 real game.
 
 # How you communicate
-- You may write normal text before or between tool calls. That text is PUBLIC: \
-it appears on the game screen for the audience, the operator and the opponent's \
-operator to read. Trash talk, threats and bluffs are allowed, but never reveal \
-a concrete plan that you are not willing to see countered.
-- Your private reasoning (the step-by-step thinking you do before writing public \
-text) is NOT shown to anyone. Think as deeply as you like in private; keep the \
-public text short.
+- Plain text you write is PRIVATE. Nobody reads it: not the audience, not the \
+operator, not your opponent. Use it to think, to draft a line, to plan.
+- The only way to say something out loud is the `speak` tool. What you pass to \
+it appears on the game screen and is quoted to your opponent before their next \
+turn. Trash talk, threats and bluffs are allowed, but never reveal a concrete \
+plan that you are not willing to see countered.
+- `speak` is optional and may be called several times in a turn. It does not \
+end your turn; only `make_move` and `resign` do.
 - Never claim you made a move unless the `make_move` tool confirmed it.
 
 # How you play
@@ -65,8 +66,18 @@ Legal moves (SAN - `make_move` accepts exactly one of these):
 {legal_moves}
 
 {opponent_section}
-Think privately, say something brief if you want to, then play your move with \
-`make_move`.
+Think privately, call `speak` if you want your opponent to hear something, then \
+play your move with `make_move`.
+"""
+
+FAREWELL_PROMPT = """The game is over. {standing}{opponent_section}
+
+You may say one last thing to your opponent with `speak` - a handshake, a \
+parting shot, an offer to play again. One or two sentences.
+
+Nothing else is possible: the board is closed, so do not call `make_move`, \
+`resign` or any other tool. If you have nothing to say, reply with nothing at \
+all.
 """
 
 NUDGE_NO_MOVE = (
@@ -90,12 +101,21 @@ def system_prompt(side: str) -> str:
     return SYSTEM_PROMPT.format(side=side)
 
 
+def _quote(speech: str) -> str:
+    """Render remarks as a quote block, one line each."""
+
+    return "\n".join(
+        f"> {line}" if line.strip() else ">" for line in speech.strip().splitlines()
+    )
+
+
 def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -> str:
     """Build the per-turn user message from the live engine.
 
-    ``opponent_speech`` is the opponent's most recent public remark, surfaced so
-    the agent can respond to trash talk or threats. ``material`` and the inline
-    legal-move list are computed from the board.
+    ``opponent_speech`` is everything the opponent has said since this side last
+    moved - their ``speak`` calls, or the operator's typed remarks - surfaced so
+    the agent can answer it. ``material`` and the inline legal-move list are
+    computed from the board.
     """
 
     legal = engine.legal_moves_san()
@@ -105,7 +125,9 @@ def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -
         legal_block = "(no legal moves - the position is checkmate or stalemate)"
 
     if opponent_speech and opponent_speech.strip():
-        opponent_section = f'Opponent\'s last spoken remark: "{opponent_speech.strip()}"'
+        opponent_section = "Opponent's remarks since your last turn:\n" + _quote(
+            opponent_speech
+        )
     else:
         opponent_section = "Opponent has not spoken yet this game."
 
@@ -124,6 +146,30 @@ def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -
         legal_moves=legal_block,
         opponent_section=opponent_section,
     )
+
+
+def farewell_prompt(side: str, result: Any, opponent_speech: Optional[str] = None) -> str:
+    """The single prompt sent after the game ended, allowing a closing remark.
+
+    ``result`` is the engine's :class:`GameResult`; it is read through
+    attributes so this module keeps no dependency on ``src.engine``.
+    ``opponent_speech`` is what the opponent has said since this side last
+    heard: after a resignation that is usually their own goodbye, which is the
+    only thing left worth answering.
+    """
+
+    if result.winner is None:
+        standing = f"The game is drawn ({result.reason})."
+    elif result.winner == side:
+        standing = f"You won ({result.reason})."
+    else:
+        standing = f"You lost ({result.reason})."
+    section = ""
+    if opponent_speech and opponent_speech.strip():
+        section = "\n\nOpponent's remarks since your last turn:\n" + _quote(
+            opponent_speech
+        )
+    return FAREWELL_PROMPT.format(standing=standing, opponent_section=section)
 
 
 def as_user_message(content: str) -> Dict[str, str]:

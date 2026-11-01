@@ -4,7 +4,8 @@ English | [简体中文](README_zh.md)
 
 Play chess against an LLM, or watch two LLMs play each other. The model never
 writes to the board directly: it can only call JSON tools
-(`get_board`, `get_board_ascii`, `get_legal_moves`, `make_move`, `resign`, ...), and every move is validated by
+(`get_board`, `get_board_ascii`, `get_legal_moves`, `make_move`, `resign`, ...),
+it talks through a `speak` tool, and every move is validated by
 [python-chess](https://python-chess.readthedocs.io/).
 
 ```
@@ -45,13 +46,19 @@ Then, in the browser:
   key configured.
 - **Load saved game** — pick a previous game; optionally override either seat
   (for example to swap in a different profile, or to take over a seat yourself).
-- Click pieces (or type SAN) to move when it is a human's turn, and watch both
-  agents' merged conversation stream in live. The chain of thought for each turn is
-  shown in a collapsible block (expanded while the model is still thinking, collapsed
-  once its reply starts; past turns start collapsed).
+- Click pieces (or type SAN) to move when it is a human's turn. The right column
+  shows the game above and the conversation below: an IM-style thread where the
+  model's `speak` lines and your own typed messages appear together. A model's
+  plain text and chain of thought are never shown - only what it chose to say
+  out loud. Type in the box under the thread to talk to your opponent; it reaches
+  them at the start of their next turn. A model that ends the game - by mate or
+  by resigning - gets one last request to say something about it, and the box
+  stays open after the result for the same reason.
 
 `human-vs-human` is hot-seat: both players share the board, and whoever is to
-move may play; the resign button acts on the side to move.
+move may play; the resign button acts on the side to move. The same screen
+speaks for that side too, so the thread is labelled `White` / `Black` and only
+the player on move can type - until the game ends, when both may.
 
 ## Command line
 
@@ -94,7 +101,7 @@ that is only the *name* of an environment variable to read.
 
 `reasoning` controls the chain of thought a reasoning model returns
 (`reasoning_content`, `reasoning`, ...). It is always stored in the game JSON
-and shown in the UI inside a collapsible block; the mode says whether it is also sent back
+for debugging but never shown; the mode says whether it is also sent back
 with the history: `auto` (default) tries it and stops if the backend refuses,
 `on` always sends it, `off` never sends it.
 
@@ -127,8 +134,9 @@ pawn move, insufficient material, stalemate, and a hard cap of 200 full moves.
 
 1. The agent receives its side, FEN, castling rights, check status, counters
    and an ASCII board.
-2. It may talk (public, shown in the UI) and call tools. Its private
-   chain-of-thought is never shown.
+2. It reasons privately, may call `speak` to say something out loud (public,
+   shown in the conversation and quoted to the opponent), and plays a move with
+   `make_move`. Plain text it writes is private and never shown.
 3. If it has not played a legal move yet, it is nudged to use `make_move`.
 4. After 20 exchanges without a move, a random legal move is played for it.
 

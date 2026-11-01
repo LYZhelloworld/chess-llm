@@ -11,11 +11,10 @@ Messages sent to the backend for every exchange:
 [ ...     ] memory.window(loop.context_turns)        <- sliding window of history
 ```
 
-The system prompt covers: the side being played, that public text is shown to
-the audience while private reasoning is not, the tool workflow, the hard rules
-(one move per `make_move`, only SAN from `get_legal_moves`, read
-`error.category` on failure), and the fact that a random move is played if the
-turn budget runs out.
+The system prompt covers: the side being played, that plain text is private while
+`speak` is public, the tool workflow, the hard rules (one move per `make_move`,
+only SAN from `get_legal_moves`, read `error.category` on failure), and the fact
+that a random move is played if the turn budget runs out.
 
 At the start of the turn a `user` message (`turn_prompt`) is appended:
 
@@ -50,8 +49,8 @@ Opponent has not spoken yet this game.
 The legal moves and a per-turn material balance are included inline so the
 model rarely needs `get_legal_moves`; that tool (and `get_board` /
 `get_board_ascii`) stays available when the list is stale or needs checking.
-The opponent's most recent public remark is appended too, so the agent can
-respond to table talk.
+The opponent's remarks since this side last moved are appended too, so the
+agent can respond to table talk.
 
 ## 2. The loop
 
@@ -97,39 +96,81 @@ Exit conditions:
 
 ## 4. Table talk
 
-Everything the assistant writes as normal text is:
+A model's words only reach anyone through the `speak` tool. What it writes as
+plain text - including the chain of thought - is private: it is kept in the
+transcript for debugging and for the model's own memory, and displayed nowhere.
 
-- emitted as an `llm_message` event,
-- kept in the chat history of that side (nothing else is stored: no separate
-  talk list),
-- written into the PGN as a move comment, derived from that history.
+Each accepted `speak` call:
 
-Chain of thought is captured the same way. If the backend returns it in
-`reasoning_content` (or `reasoning` / `thinking` / `think`), it is stored on
-  the assistant message under `reasoning` and shown in the browser inside a
-  collapsible block. The profile field `reasoning` decides whether it is sent back with the
-history: `auto` (default) sends it and stops if the backend refuses the request,
-`on` always sends it, `off` never sends it. In `auto` mode a refused request is
+- is emitted as a `say` event,
+- goes into that side's chat history as a normal assistant `tool_calls` entry,
+  so nothing extra has to be stored,
+- becomes a PGN move comment when the side plays the move it was said before.
+
+Chain of thought is captured from `reasoning_content` (or `reasoning` /
+`thinking` / `think`) and stored on the assistant message under `reasoning`. The
+profile field `reasoning` decides whether it is sent back with the history:
+`auto` (default) sends it and stops if the backend refuses the request, `on`
+always sends it, `off` never sends it. In `auto` mode a refused request is
 retried once without the chain of thought, and only if that also fails does the
-turn fall back to a random move as usual.
+turn fall back to a random move as usual. The reasoning is never displayed.
 
-Public text **is** injected into the opponent's context. `GameController.
-run_llm_turn` prepends the opponent's most recent public remark (the last
-non-empty assistant message on the other side) to the turn prompt as
-"Opponent's last spoken remark: ...". Remarks spoken in the same turn are not
-available yet, and a silent opponent reads as "Opponent has not spoken yet this
+Speech **is** injected into the opponent's context. `GameController` collects
+everything the opponent said since this side last moved - the opponent's `speak`
+calls, or the operator's typed remarks - and puts it in the turn prompt as
+`Opponent's remarks since your last turn:`. Each remark is delivered once: the
+watermark advances when the prompt is built, so a repeated line does not haunt
+every later turn. A silent opponent reads as "Opponent has not spoken yet this
 game."
 
-## 5. Events emitted
+A human may type at any time, including while the opponent is thinking. The
+remark is stored and displayed immediately; it joins the opponent's prompt at
+the start of their **next** turn, because a turn that is already running has
+already built its prompt.
+
+## 5. Last words
+
+The turn returns the moment the committing tool runs, so a model that has just
+delivered mate - or resigned - would otherwise never get to react to it. When
+the position is terminal after that tool, `run_llm_turn` sends **one** extra
+request (see `farewell_prompt` in `src/prompts.py`):
+
+- the prompt states the result from that side's point of view, allows a closing
+  remark through `speak`, and forbids every other tool ("the board is closed");
+- it also quotes the opponent's remarks since this side last heard from them,
+  because there is no next turn prompt left to carry them;
+- the executor is in its terminal state, so a `make_move` or `resign` in that
+  answer comes back as `illegal_state` rather than changing anything;
+- exactly one request is made. There is no retry, no nudge and no loop: the
+  result is decided, so anything more would only be latency. A backend failure
+  is logged and swallowed, and the move that ended the game is still recorded.
+
+A resignation is not visible on the board, so the result is read off the tool
+that caused it (`_final_result`): the board is still perfectly playable, and
+asking the position would look like the game were still going.
+
+Only the seat that ended the game gets this inside its own turn. The **other**
+seat - the winner of a resignation, or the loser of someone else's mate - has
+no turn left to run, so `GameController._finish` asks for its closing remark
+(`last_words`, guarded by a per-seat flag so it happens once). Both sides of a
+finished game therefore speak, whichever way it ended.
+
+Those remarks carry `ply = 0`, which is the marker for "said after the game":
+they are shown in the thread but never become a PGN comment, because they
+belong to no move. The same applies to a human's remark typed after the game
+ended, which the controller still accepts.
+
+## 6. Events emitted
 
 | Type | Payload |
 | --- | --- |
 | `user_prompt` | the turn prompt sent to the model |
-| `llm_message` | public text written by the model, plus its chain of thought |
-| `llm_delta` | streaming fragment of `llm_message` (content and/or reasoning); the UI renders it in place |
+| `llm_message` | the model's private text and chain of thought - kept for debugging, displayed nowhere |
+| `llm_delta` | streaming fragment of `llm_message`; nothing is rendered from it any more |
 | `tool_call` | tool name + raw arguments |
 | `tool_result` | the JSON returned by the tool |
+| `say` | one accepted `speak` remark (also emitted by the controller for a human's typed line) |
 | `nudge` | "you have not moved yet" reminder |
 | `fallback_move` | the random move played for the model |
 | `llm_error` | backend failure |
-| `talk` / `move` / `game_over` | emitted by the controller |
+| `move` / `game_over` | emitted by the controller |

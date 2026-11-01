@@ -13,9 +13,15 @@ TOOL_NAMES = (
     "get_board_ascii",
     "get_legal_moves",
     "try_make_move",
+    "speak",
     "make_move",
     "resign",
 )
+
+# One public remark may not exceed this many characters. It bounds what a model
+# can push into the opponent's prompt (and the screen) with a single call, so a
+# runaway "speech" cannot dominate the next turn's context.
+SPEAK_MAX_CHARS = 500
 
 _EMPTY: Dict[str, Any] = {
     "type": "object",
@@ -86,6 +92,35 @@ TOOL_DEFINITIONS: List[Dict[str, Any]] = [
                     },
                 },
                 "required": ["moves"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "speak",
+            "description": (
+                "Say something out loud. This is the only way your words reach "
+                "anyone: plain text you write outside a tool call is private and "
+                "is never shown. What you pass here appears on the game screen "
+                "and is quoted to your opponent before their next turn. It does "
+                "NOT end your turn - call it as often as you like, or not at all."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": (
+                            "What you want to say, in plain language. At most "
+                            f"{SPEAK_MAX_CHARS} characters. A blank line starts a "
+                            "new message bubble; do not send a second call just to "
+                            "start a new line."
+                        ),
+                    }
+                },
+                "required": ["text"],
                 "additionalProperties": False,
             },
         },

@@ -156,6 +156,13 @@ class ResignRequest(BaseModel):
     )
 
 
+class SayRequest(BaseModel):
+    # The seat that speaks; optional because the server already knows it when
+    # only one human is at the board, and the UI sends it anyway.
+    side: Optional[str] = Field(default=None, description="'white' or 'black'.")
+    text: str = Field(..., description="What the human wants to say.")
+
+
 class NewGameRequest(BaseModel):
     # Each side is "human" or "llm:<profile-name>" (the profile must exist in
     # config.yaml). The UI always sends an explicit choice - there is no default.
@@ -258,10 +265,30 @@ def create_app(
     async def post_move(payload: MoveRequest) -> JSONResponse:
         if ctx.controller is None:
             raise HTTPException(status_code=400, detail="No game is running.")
-        result = ctx.controller.submit_human_move(payload.move)
+        # A move that ends the game asks the model in the other seat for a
+        # closing remark, and that is a network round trip: keep it off the
+        # event loop so the board and the event stream stay responsive.
+        result = await asyncio.to_thread(ctx.controller.submit_human_move, payload.move)
         if not result.get("ok"):
             return JSONResponse(result, status_code=400)
         ctx.schedule_turn()
+        return JSONResponse(result)
+
+    @app.post("/api/say")
+    async def post_say(payload: SayRequest) -> JSONResponse:
+        if ctx.controller is None:
+            raise HTTPException(status_code=400, detail="No game is running.")
+        side = (payload.side or ctx.controller.say_side or "").strip().lower()
+        if side not in (WHITE, BLACK):
+            raise HTTPException(
+                status_code=400,
+                detail="Nobody at the board can speak in this game.",
+            )
+        # The controller decides whether that seat may speak at all (a human
+        # seat, and in a hot-seat game the side that is to move).
+        result = ctx.controller.say(side, payload.text)
+        if not result.get("ok"):
+            return JSONResponse(result, status_code=400)
         return JSONResponse(result)
 
     @app.post("/api/resign")
@@ -273,8 +300,10 @@ def create_app(
             raise HTTPException(status_code=400, detail="side must be 'white' or 'black'")
         reason = (payload.reason or "").strip() or None
         # The controller decides whether this seat may resign at all (human
-        # seat, and in a hot-seat game the side that is to move).
-        result = ctx.controller.resign(side, reason)
+        # seat, and in a hot-seat game the side that is to move). The model in
+        # the other seat then gets its closing remark, which blocks on a
+        # network call - hence the thread.
+        result = await asyncio.to_thread(ctx.controller.resign, side, reason)
         if not result.get("ok"):
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)

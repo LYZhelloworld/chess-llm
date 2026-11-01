@@ -402,6 +402,24 @@ def test_the_model_gets_one_closing_remark_after_delivering_mate():
     assert "The game is over" in client.requests[1]["messages"][-1]["content"]
 
 
+def test_a_resigning_model_still_gets_its_closing_remark():
+    """A resignation is not on the board, so it must be read from the tool."""
+
+    engine = ChessEngine()
+    memory = ChatMemory()
+    client = ScriptedClient(
+        tool_call("resign", '{"reason": "hopeless"}'),
+        tool_call("speak", '{"text": "I have seen enough."}'),
+    )
+
+    outcome = run_llm_turn(client, engine, "white", memory, AppConfig())
+
+    assert outcome.resigned is True
+    assert outcome.spoken == ["I have seen enough."]
+    assert len(client.requests) == 2
+    assert "You lost (resignation)." in client.requests[1]["messages"][-1]["content"]
+
+
 def test_no_closing_remark_while_the_game_goes_on():
     engine = ChessEngine()
     memory = ChatMemory()

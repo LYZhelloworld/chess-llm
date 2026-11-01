@@ -88,9 +88,11 @@ module except the agent loop.
   including while the model is thinking, and including after the game is over -
   but never into the middle of a turn that has already built its prompt.
 - **The game gets a closing line.** Both sides may say one last thing once the
-  result is in: a model because `run_llm_turn` sends one extra `speak`-only
-  request after the committing tool, a human because the message box stays open.
-  Those remarks belong to no move, so they never turn into a PGN comment.
+  result is in: the model that ended the game because `run_llm_turn` sends one
+  extra `speak`-only request after the committing tool, the other model because
+  `GameController._finish` asks it (its turn never runs), a human because the
+  message box stays open. Those remarks belong to no move, so they never turn
+  into a PGN comment.
 - **Table talk is injected as context.** Opponent remarks are forwarded as
   `Opponent's remarks since your last turn` at the start of the next turn (see
   `docs/LLM-LOOP.md`). This lets agents respond to trash talk, at the cost of

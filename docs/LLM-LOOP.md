@@ -137,11 +137,23 @@ request (see `farewell_prompt` in `src/prompts.py`):
 
 - the prompt states the result from that side's point of view, allows a closing
   remark through `speak`, and forbids every other tool ("the board is closed");
-- the executor is still in its terminal state, so a `make_move` or `resign` in
-  that answer comes back as `illegal_state` rather than changing anything;
+- it also quotes the opponent's remarks since this side last heard from them,
+  because there is no next turn prompt left to carry them;
+- the executor is in its terminal state, so a `make_move` or `resign` in that
+  answer comes back as `illegal_state` rather than changing anything;
 - exactly one request is made. There is no retry, no nudge and no loop: the
   result is decided, so anything more would only be latency. A backend failure
   is logged and swallowed, and the move that ended the game is still recorded.
+
+A resignation is not visible on the board, so the result is read off the tool
+that caused it (`_final_result`): the board is still perfectly playable, and
+asking the position would look like the game were still going.
+
+Only the seat that ended the game gets this inside its own turn. The **other**
+seat - the winner of a resignation, or the loser of someone else's mate - has
+no turn left to run, so `GameController._finish` asks for its closing remark
+(`last_words`, guarded by a per-seat flag so it happens once). Both sides of a
+finished game therefore speak, whichever way it ended.
 
 Those remarks carry `ply = 0`, which is the marker for "said after the game":
 they are shown in the thread but never become a PGN comment, because they

@@ -275,14 +275,36 @@ class ResigningClient:
     def __init__(self, reason=None):
         self.reason = reason
         self.calls = 0
+        self.prompts = []
 
     def chat(self, messages, tools=None):
         self.calls += 1
+        self.prompts.append(messages[-1]["content"] if messages else "")
         arguments = {} if self.reason is None else {"reason": self.reason}
         return AssistantMessage(
             content="This is lost.",
             tool_calls=[
                 ToolCall(id=f"call_{self.calls}", name="resign", arguments=json.dumps(arguments))
+            ],
+        )
+
+    def reasoning_enabled(self) -> bool:
+        return True
+
+
+class PartingClient:
+    """Says one last thing and touches nothing else."""
+
+    def __init__(self, text="Well played."):
+        self.text = text
+        self.prompts = []
+
+    def chat(self, messages, tools=None):
+        self.prompts.append(messages[-1]["content"] if messages else "")
+        return AssistantMessage(
+            content="",
+            tool_calls=[
+                ToolCall(id="bye", name="speak", arguments=json.dumps({"text": self.text}))
             ],
         )
 
@@ -304,6 +326,73 @@ def test_llm_can_resign_through_its_own_tool(tmp_path):
     assert controller.state.result["winner"] == "white"
     assert controller.state.result["detail"] == "queen is gone"
     assert load_game(controller.state.game_id, paths).result["winner"] == "white"
+
+
+def test_the_model_says_goodbye_when_the_human_resigns(tmp_path):
+    """The winner's turn never runs, so the controller has to ask for it."""
+
+    controller, paths = make_controller(tmp_path)
+    black = PartingClient("Good game, human.")
+    controller._clients["black"] = black
+    controller.say("white", "I am out.")
+
+    controller.resign("white", "no time")
+
+    assert controller.finished is True
+    assert "You won (resignation)." in black.prompts[-1]
+    # There is no next turn to carry the operator's remark, so the goodbye
+    # prompt carries it instead - otherwise the model talks into the void.
+    assert "> I am out." in black.prompts[-1]
+    assert [(entry["side"], entry["text"]) for entry in controller.state.conversation()] == [
+        ("white", "I am out."),
+        ("black", "Good game, human."),
+    ]
+    # Said after the game: it belongs to no ply and never becomes a PGN comment.
+    assert controller.state.conversation()[-1]["ply"] == 0
+    saved = load_game(controller.state.game_id, paths)
+    assert saved.conversation()[-1]["text"] == "Good game, human."
+
+
+def test_both_models_get_a_word_in_when_one_resigns(tmp_path):
+    controller, _ = make_controller(
+        tmp_path,
+        white=PlayerSpec.llm("default", "m1"),
+        black=PlayerSpec.llm("default", "m2"),
+        moves=["e4"],
+    )
+    black = ResigningClient("queen is gone")
+    white = PartingClient("Thanks for the game.")
+    controller._clients["black"] = black
+    controller._clients["white"] = white
+
+    outcome = controller.run_llm_turn()
+
+    assert outcome["status"] == "resigned"
+    # The resignation itself gets one closing request...
+    assert black.calls == 2
+    assert "You lost (resignation)." in black.prompts[-1]
+    # ...and the winner, whose turn never runs, is asked by the controller.
+    assert "You won (resignation)." in white.prompts[-1]
+    said = [(entry["side"], entry["text"]) for entry in controller.state.conversation()]
+    assert said == [("white", "Thanks for the game.")]
+
+
+def test_the_loser_of_a_checkmate_says_goodbye_too(tmp_path):
+    controller, _ = make_controller(
+        tmp_path,
+        white=PlayerSpec.llm("default", "m1"),
+        black=PlayerSpec.llm("default", "m2"),
+        moves=["f3", "e5", "g4"],
+    )
+    controller._clients["black"] = FakeClient(move="Qh4#", text="")
+    white = PartingClient("Ouch. Well played.")
+    controller._clients["white"] = white
+
+    controller.run_llm_turn()
+
+    assert controller.finished is True
+    assert "You lost (checkmate)." in white.prompts[-1]
+    assert controller.state.conversation()[-1]["text"] == "Ouch. Well played."
 
 
 def test_resignation_is_refused_for_an_llm_seat(tmp_path):

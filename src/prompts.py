@@ -70,7 +70,7 @@ Think privately, call `speak` if you want your opponent to hear something, then 
 play your move with `make_move`.
 """
 
-FAREWELL_PROMPT = """The game is over. {standing}
+FAREWELL_PROMPT = """The game is over. {standing}{opponent_section}
 
 You may say one last thing to your opponent with `speak` - a handshake, a \
 parting shot, an offer to play again. One or two sentences.
@@ -101,6 +101,14 @@ def system_prompt(side: str) -> str:
     return SYSTEM_PROMPT.format(side=side)
 
 
+def _quote(speech: str) -> str:
+    """Render remarks as a quote block, one line each."""
+
+    return "\n".join(
+        f"> {line}" if line.strip() else ">" for line in speech.strip().splitlines()
+    )
+
+
 def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -> str:
     """Build the per-turn user message from the live engine.
 
@@ -117,11 +125,9 @@ def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -
         legal_block = "(no legal moves - the position is checkmate or stalemate)"
 
     if opponent_speech and opponent_speech.strip():
-        quoted = "\n".join(
-            f"> {line}" if line.strip() else ">"
-            for line in opponent_speech.strip().splitlines()
+        opponent_section = "Opponent's remarks since your last turn:\n" + _quote(
+            opponent_speech
         )
-        opponent_section = "Opponent's remarks since your last turn:\n" + quoted
     else:
         opponent_section = "Opponent has not spoken yet this game."
 
@@ -142,11 +148,14 @@ def turn_prompt(engine: Any, side: str, opponent_speech: Optional[str] = None) -
     )
 
 
-def farewell_prompt(side: str, result: Any) -> str:
+def farewell_prompt(side: str, result: Any, opponent_speech: Optional[str] = None) -> str:
     """The single prompt sent after the game ended, allowing a closing remark.
 
     ``result`` is the engine's :class:`GameResult`; it is read through
     attributes so this module keeps no dependency on ``src.engine``.
+    ``opponent_speech`` is what the opponent has said since this side last
+    heard: after a resignation that is usually their own goodbye, which is the
+    only thing left worth answering.
     """
 
     if result.winner is None:
@@ -155,7 +164,12 @@ def farewell_prompt(side: str, result: Any) -> str:
         standing = f"You won ({result.reason})."
     else:
         standing = f"You lost ({result.reason})."
-    return FAREWELL_PROMPT.format(standing=standing)
+    section = ""
+    if opponent_speech and opponent_speech.strip():
+        section = "\n\nOpponent's remarks since your last turn:\n" + _quote(
+            opponent_speech
+        )
+    return FAREWELL_PROMPT.format(standing=standing, opponent_section=section)
 
 
 def as_user_message(content: str) -> Dict[str, str]:

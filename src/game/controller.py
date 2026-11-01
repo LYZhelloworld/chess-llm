@@ -8,7 +8,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional
 
 from src.agent.llm_client import LlmClient
-from src.agent.loop import ChatMemory, TurnOutcome, run_llm_turn
+from src.agent.loop import ChatMemory, TurnOutcome, last_words, run_llm_turn
 from src.config import AppConfig, BLACK, HUMAN, LLM, WHITE
 from src.engine.board import ChessEngine, MoveError
 from src.engine.rules import GameResult, evaluate_position, resignation_result
@@ -54,6 +54,10 @@ class GameController:
             WHITE: self._latest_remark(BLACK),
             BLACK: self._latest_remark(WHITE),
         }
+        # Seats that have already had the one closing exchange a finished game
+        # allows. Two code paths can ask for it (the turn that ended the game,
+        # and the controller for the other seat), so it is kept here.
+        self._farewells: set[str] = set()
 
     # ------------------------------------------------------------------ access
     @property
@@ -186,7 +190,7 @@ class GameController:
         reason = (reason or "").strip() or None
         result = resignation_result(side, reason)
         LOGGER.info("%s resigned: %s", side, reason or "(no reason given)")
-        self._finish(result)
+        self._finish(result, mover=side)
         return {"ok": True, "resigned": side, "result": result.to_dict()}
 
     def _hot_seat(self) -> bool:
@@ -301,7 +305,7 @@ class GameController:
 
         if outcome.resigned:
             result = resignation_result(side, outcome.resign_reason)
-            self._finish(result)
+            self._finish(result, mover=side)
             return {
                 "status": "resigned",
                 "side": side,
@@ -414,14 +418,62 @@ class GameController:
             self.save()
             self.emit({"type": "state", "reason": "move"})
             return
-        self._finish(result)
+        self._finish(result, mover=side)
 
-    def _finish(self, result: GameResult) -> None:
+    def _finish(self, result: GameResult, mover: Optional[str] = None) -> None:
+        """Close the game and let the other seat say goodbye.
+
+        ``mover`` is the side whose action ended the game. It has already had
+        its closing exchange inside the turn that ended it, so only the other
+        seat is asked here - and only if a model is sitting in it. A human can
+        type whenever they like (the box stays open), so this is a no-op there.
+        """
+
         self.state.result = result.to_dict()
         self.state.finished = True
         LOGGER.info("Game over: %s (%s)", result.reason, result.detail)
         self.save()
         self.emit({"type": "game_over", "result": result.to_dict()})
+        for side in (WHITE, BLACK):
+            if side != mover:
+                self._farewell(side, result)
+
+    def _farewell(self, side: str, result: GameResult) -> None:
+        """Ask a model seat for its one closing remark.
+
+        The losing seat of a resignation used to get nothing at all, because
+        its own turn was the one that ended the game - and the winner of a
+        resignation got nothing either, because the opposing turn simply never
+        started. Both are asked from here now.
+        """
+
+        if side in self._farewells:
+            return
+        if self.state.player(side).kind != LLM:
+            return
+        self._farewells.add(side)
+        memory = self.memories[side]
+        try:
+            client = self.client(side)
+            last_words(
+                client=client,
+                engine=self.engine,
+                side=side,
+                memory=memory,
+                config=self.config,
+                result=result,
+                emit=self.emit,
+                keep_reasoning=client.reasoning_enabled(),
+                stamp=self.state.stamp,
+                # The opponent's goodbye is the one remark this seat has never
+                # been given, and there is no next turn to put it in.
+                opponent_speech=self._opponent_speech(side),
+            )
+        except Exception:  # noqa: BLE001 - the game is over either way
+            LOGGER.exception("Closing remark for %s failed", side)
+            return
+        self.state.set_chat(side, memory.messages)
+        self.save()
 
     def save(self) -> None:
         if not self.config.storage.autosave:

@@ -88,3 +88,13 @@ def test_farewell_prompt_reads_the_result_from_the_players_side():
     # The board is closed: the closing prompt must rule the playing tools out.
     assert "`make_move`" in farewell_prompt("white", won)
     assert "`speak`" in farewell_prompt("white", won)
+
+
+def test_farewell_prompt_carries_what_the_opponent_just_said():
+    won = GameResult(winner="white", reason="resignation", pgn_result="1-0")
+
+    quiet = farewell_prompt("white", won)
+    assert "Opponent's remarks" not in quiet
+
+    heard = farewell_prompt("white", won, "I am out.")
+    assert "Opponent's remarks since your last turn:\n> I am out." in heard

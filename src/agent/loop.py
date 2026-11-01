@@ -10,7 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol
 from src.agent.llm_client import REASONING_KEY, AssistantMessage, ToolCall
 from src.config import AppConfig
 from src.engine.board import ChessEngine
-from src.engine.rules import evaluate_position
+from src.engine.rules import GameResult, evaluate_position, resignation_result
 from src.prompts import (
     FALLBACK_NOTICE,
     NUDGE_NO_MOVE,
@@ -257,15 +257,15 @@ def run_llm_turn(
             if executor.resigned:
                 outcome.resigned = True
                 outcome.resign_reason = executor.resign_reason
-            _last_words(
+            last_words(
                 client=client,
                 engine=engine,
                 side=side,
                 memory=memory,
                 config=config,
+                result=_final_result(engine, side, executor, config),
                 emit=emit,
                 outcome=outcome,
-                executor=executor,
                 keep_reasoning=keep_reasoning,
                 chat_kwargs=chat_kwargs,
                 stamp=stamp,
@@ -281,9 +281,7 @@ def run_llm_turn(
     # A random move can finish the game too (mate, stalemate), and the model
     # still deserves its closing line.
     if evaluate_position(engine.board, config.draw) is not None:
-        closing = make_executor(engine, side)
-        closing.terminal = True
-        _last_words(
+        last_words(
             client=client,
             engine=engine,
             side=side,
@@ -291,7 +289,6 @@ def run_llm_turn(
             config=config,
             emit=emit,
             outcome=outcome,
-            executor=closing,
             keep_reasoning=keep_reasoning or False,
             chat_kwargs=chat_kwargs,
             stamp=stamp,
@@ -299,18 +296,33 @@ def run_llm_turn(
     return outcome
 
 
-def _last_words(
+def _final_result(
+    engine: ChessEngine, side: str, executor: ToolExecutor, config: AppConfig
+) -> Optional[GameResult]:
+    """How the turn ended, for the closing prompt.
+
+    A resignation leaves a perfectly playable board behind, so it has to be read
+    off the tool that caused it rather than off the position.
+    """
+
+    if executor.resigned:
+        return resignation_result(side, executor.resign_reason)
+    return evaluate_position(engine.board, config.draw)
+
+
+def last_words(
     client: ChatClient,
     engine: ChessEngine,
     side: str,
     memory: ChatMemory,
     config: AppConfig,
-    emit: EmitFn,
-    outcome: TurnOutcome,
-    executor: ToolExecutor,
-    keep_reasoning: bool,
-    chat_kwargs: Dict[str, Any],
-    stamp: Optional[Callable[[Dict[str, Any], int], None]],
+    result: Optional[GameResult] = None,
+    emit: Optional[EmitFn] = None,
+    outcome: Optional[TurnOutcome] = None,
+    keep_reasoning: bool = True,
+    chat_kwargs: Optional[Dict[str, Any]] = None,
+    stamp: Optional[Callable[[Dict[str, Any], int], None]] = None,
+    opponent_speech: Optional[str] = None,
 ) -> None:
     """One closing exchange once the game has ended.
 
@@ -320,15 +332,32 @@ def _last_words(
     the result is decided, so retrying or arguing about it would only add noise
     and latency, and a failure here is logged and swallowed because the game is
     over either way.
+
+    ``result`` is how the game ended; when it is omitted the board is asked,
+    which is right for mate and the draws but not for a resignation. The
+    controller calls this for the seat that did *not* end the game, so both
+    players of a finished game get their last word.
     """
 
-    result = evaluate_position(engine.board, config.draw)
+    if result is None:
+        result = evaluate_position(engine.board, config.draw)
     if result is None:
         return
 
+    emit = emit or (lambda _event: None)
+    outcome = outcome or TurnOutcome()
+    chat_kwargs = chat_kwargs or {}
+
+    # The turn's own executor is already gone by the time the controller asks
+    # for a remark, so this exchange gets a terminal one of its own: `speak` is
+    # the only tool left open on it.
+    executor = ToolExecutor(engine, side, config.draw)
+    executor.terminal = True
+    executor.committed_move = outcome.move_san
+
     message: Dict[str, Any] = {
         "role": "user",
-        "content": farewell_prompt(side, result),
+        "content": farewell_prompt(side, result, opponent_speech),
     }
     memory.add(message)
     outcome.transcript.append(message)

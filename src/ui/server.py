@@ -265,7 +265,10 @@ def create_app(
     async def post_move(payload: MoveRequest) -> JSONResponse:
         if ctx.controller is None:
             raise HTTPException(status_code=400, detail="No game is running.")
-        result = ctx.controller.submit_human_move(payload.move)
+        # A move that ends the game asks the model in the other seat for a
+        # closing remark, and that is a network round trip: keep it off the
+        # event loop so the board and the event stream stay responsive.
+        result = await asyncio.to_thread(ctx.controller.submit_human_move, payload.move)
         if not result.get("ok"):
             return JSONResponse(result, status_code=400)
         ctx.schedule_turn()
@@ -297,8 +300,10 @@ def create_app(
             raise HTTPException(status_code=400, detail="side must be 'white' or 'black'")
         reason = (payload.reason or "").strip() or None
         # The controller decides whether this seat may resign at all (human
-        # seat, and in a hot-seat game the side that is to move).
-        result = ctx.controller.resign(side, reason)
+        # seat, and in a hot-seat game the side that is to move). The model in
+        # the other seat then gets its closing remark, which blocks on a
+        # network call - hence the thread.
+        result = await asyncio.to_thread(ctx.controller.resign, side, reason)
         if not result.get("ok"):
             return JSONResponse(result, status_code=400)
         return JSONResponse(result)
